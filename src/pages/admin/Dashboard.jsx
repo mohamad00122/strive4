@@ -16,6 +16,11 @@ export default function AdminDashboard() {
   const [error, setError] = useState('')
   const [adding, setAdding] = useState(false)
   const [success, setSuccess] = useState('')
+  const [newName, setNewName] = useState(profile?.full_name || '')
+  const [newEmail, setNewEmail] = useState(profile?.email || '')
+  const [newPassword, setNewPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
 
   useEffect(() => { fetchAll() }, [])
 
@@ -50,9 +55,18 @@ export default function AdminDashboard() {
     fetchAll()
   }
 
-  const initials = (name) => name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2) || '??'
+  const saveSettings = async () => {
+    setSaving(true)
+    setSaveMsg('')
+    await supabase.from('profiles').update({ full_name: newName, email: newEmail }).eq('id', profile.id)
+    if (newPassword) await supabase.auth.updateUser({ password: newPassword })
+    setSaveMsg('Saved successfully!')
+    setSaving(false)
+    setTimeout(() => setSaveMsg(''), 3000)
+  }
 
-  const tabs = ['overview', 'trainers', 'clients', 'add account']
+  const initials = (name) => name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '??'
+  const tabs = ['overview', 'trainers', 'clients', 'add account', 'settings']
 
   return (
     <div className="app-layout">
@@ -94,11 +108,17 @@ export default function AdminDashboard() {
                   ))}
                 </div>
                 <div style={{fontFamily:'var(--font-head)', fontSize:'16px', fontWeight:'700', marginBottom:'12px'}}>Recent trainers</div>
-                {trainers.slice(0,3).map(t => (
+                {trainers.length === 0 ? (
+                  <div className="card" style={{textAlign:'center', padding:'30px'}}>
+                    <div style={{fontSize:'13px', color:'var(--text3)'}}>No trainers yet</div>
+                  </div>
+                ) : trainers.slice(0, 3).map(t => (
                   <div key={t.id} className="card" style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'8px'}}>
                     <div className="avatar">{initials(t.full_name)}</div>
-                    <div><div style={{fontFamily:'var(--font-head)', fontSize:'14px', fontWeight:'600'}}>{t.full_name}</div>
-                    <div style={{fontSize:'12px', color:'var(--text3)'}}>{t.email}</div></div>
+                    <div>
+                      <div style={{fontFamily:'var(--font-head)', fontSize:'14px', fontWeight:'600'}}>{t.full_name}</div>
+                      <div style={{fontSize:'12px', color:'var(--text3)'}}>{t.email}</div>
+                    </div>
                   </div>
                 ))}
               </>
@@ -110,7 +130,13 @@ export default function AdminDashboard() {
           <>
             <div className="page-title">Trainers</div>
             <div className="page-sub">{stats.trainers} trainer{stats.trainers !== 1 ? 's' : ''} on the platform</div>
-            {trainers.map(t => (
+            {trainers.length === 0 ? (
+              <div className="card" style={{textAlign:'center', padding:'40px'}}>
+                <div style={{fontSize:'32px', marginBottom:'12px'}}>🏋️</div>
+                <div style={{fontFamily:'var(--font-head)', fontSize:'16px', fontWeight:'600', marginBottom:'6px'}}>No trainers yet</div>
+                <div style={{fontSize:'13px', color:'var(--text3)'}}>Add a trainer from the Add Account tab</div>
+              </div>
+            ) : trainers.map(t => (
               <div key={t.id} className="card" style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'8px'}}>
                 <div className="avatar">{initials(t.full_name)}</div>
                 <div style={{flex:1}}>
@@ -127,7 +153,13 @@ export default function AdminDashboard() {
           <>
             <div className="page-title">Clients</div>
             <div className="page-sub">{stats.clients} client{stats.clients !== 1 ? 's' : ''} on the platform</div>
-            {clients.map(c => (
+            {clients.length === 0 ? (
+              <div className="card" style={{textAlign:'center', padding:'40px'}}>
+                <div style={{fontSize:'32px', marginBottom:'12px'}}>💪</div>
+                <div style={{fontFamily:'var(--font-head)', fontSize:'16px', fontWeight:'600', marginBottom:'6px'}}>No clients yet</div>
+                <div style={{fontSize:'13px', color:'var(--text3)'}}>Clients will appear here once trainers add them</div>
+              </div>
+            ) : clients.map(c => (
               <div key={c.id} className="card" style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'8px'}}>
                 <div className="avatar">{initials(c.full_name)}</div>
                 <div style={{flex:1}}>
@@ -147,7 +179,7 @@ export default function AdminDashboard() {
             <div className="card" style={{maxWidth:'440px'}}>
               {error && <div className="error-msg">{error}</div>}
               {success && <div style={{background:'var(--green-dim)', border:'0.5px solid rgba(62,207,142,0.2)', borderRadius:'10px', padding:'10px 14px', fontSize:'13px', color:'var(--green)', marginBottom:'14px'}}>{success}</div>}
-              <div className="form-group" style={{marginBottom:'10px'}}>
+              <div style={{marginBottom:'10px'}}>
                 <span className="label">Role</span>
                 <select className="input" value={adminRole} onChange={e => setAdminRole(e.target.value)}>
                   <option value="trainer">Trainer</option>
@@ -155,21 +187,51 @@ export default function AdminDashboard() {
                   <option value="admin">Admin</option>
                 </select>
               </div>
-              <div className="form-group" style={{marginBottom:'10px'}}>
+              <div style={{marginBottom:'10px'}}>
                 <span className="label">Full name</span>
                 <input className="input" placeholder="Full name" value={name} onChange={e => setName(e.target.value)} />
               </div>
-              <div className="form-group" style={{marginBottom:'10px'}}>
+              <div style={{marginBottom:'10px'}}>
                 <span className="label">Email</span>
                 <input className="input" type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} />
               </div>
-              <div className="form-group" style={{marginBottom:'20px'}}>
+              <div style={{marginBottom:'20px'}}>
                 <span className="label">Password</span>
                 <input className="input" type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
               </div>
               <button className="btn btn-primary" onClick={createAccount} disabled={adding}>
                 {adding ? 'Creating...' : 'Create account →'}
               </button>
+            </div>
+          </>
+        )}
+
+        {tab === 'settings' && (
+          <>
+            <div className="page-title">Settings</div>
+            <div className="page-sub">Update your admin account info</div>
+            <div className="card" style={{maxWidth:'440px', marginBottom:'16px'}}>
+              {saveMsg && <div style={{background:'var(--green-dim)', border:'0.5px solid rgba(62,207,142,0.2)', borderRadius:'10px', padding:'10px 14px', fontSize:'13px', color:'var(--green)', marginBottom:'14px'}}>{saveMsg}</div>}
+              <div style={{marginBottom:'10px'}}>
+                <span className="label">Full name</span>
+                <input className="input" value={newName} onChange={e => setNewName(e.target.value)} />
+              </div>
+              <div style={{marginBottom:'10px'}}>
+                <span className="label">Email</span>
+                <input className="input" type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
+              </div>
+              <div style={{marginBottom:'20px'}}>
+                <span className="label">New password (leave blank to keep current)</span>
+                <input className="input" type="password" placeholder="New password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+              </div>
+              <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>
+                {saving ? 'Saving...' : 'Save changes →'}
+              </button>
+            </div>
+            <div className="card" style={{maxWidth:'440px'}}>
+              <div style={{fontFamily:'var(--font-head)', fontSize:'15px', fontWeight:'700', marginBottom:'4px'}}>Sign out</div>
+              <div style={{fontSize:'13px', color:'var(--text3)', marginBottom:'16px'}}>You'll be redirected to the login page</div>
+              <button className="btn btn-danger" style={{width:'100%'}} onClick={signOut}>Sign out</button>
             </div>
           </>
         )}
