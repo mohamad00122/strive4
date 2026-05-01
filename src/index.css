@@ -209,8 +209,11 @@ select.input { cursor: pointer; }
 .mobile-nav-item.active .mobile-nav-dot { background: var(--accent-dim); border: 0.5px solid rgba(91,140,255,0.3); }
 
 @media (max-width: 768px) {
-  .sidebar { display: none; }
-  .mobile-header { display: flex; }
-  .mobile-nav { display: block; }
-  .main-content { margin-left: 0; padding: 16px 16px 90px; }
+  .sidebar { display: none !important; }
+  .mobile-header { display: flex !important; }
+  .mobile-nav { display: block !important; }
+  .main-content { margin-left: 0 !important; padding: 16px 16px 90px; max-width: 100%; }
+  .app-layout { display: block; }
+  .page-title { font-size: 20px; }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
 }
