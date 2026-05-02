@@ -15,13 +15,23 @@ export default function SignUp() {
     if (password.length < 6) return setError('Password must be at least 6 characters.')
     setLoading(true)
     setError('')
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { full_name: fullName, role: 'trainer' } }
     })
-    if (error) { setError(error.message); setLoading(false) }
-    else navigate('/onboarding')
+    if (error) { setError(error.message); setLoading(false); return }
+    if (data?.user) {
+      await supabase.from('profiles').upsert({
+        id: data.user.id,
+        email,
+        full_name: fullName,
+        role: 'trainer',
+        onboarded: false
+      })
+    }
+    setLoading(false)
+    navigate('/onboarding')
   }
 
   return (
