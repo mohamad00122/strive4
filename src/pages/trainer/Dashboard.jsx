@@ -38,23 +38,49 @@ export default function TrainerDashboard() {
     setAdding(true)
     setError('')
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('create-client', {
-        body: { email, password, fullName: name, trainerId: profile.id }
+      const { data: { session: trainerSession } } = await supabase.auth.getSession()
+
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: name, role: 'client' } }
       })
-      if (fnError) {
-        setError('Could not create client: ' + fnError.message)
+
+      if (signUpError) {
+        setError(signUpError.message)
         setAdding(false)
         return
       }
-      if (data?.error) {
-        setError(data.error)
+
+      const clientId = data?.user?.id
+      if (!clientId) {
+        setError('Could not create client account.')
         setAdding(false)
         return
       }
+
+      await supabase.from('profiles').upsert({
+        id: clientId,
+        email,
+        full_name: name,
+        role: 'client',
+        onboarded: false
+      })
+
+      await supabase.from('clients').insert({
+        trainer_id: profile.id,
+        client_id: clientId
+      })
+
+      await supabase.auth.setSession({
+        access_token: trainerSession.access_token,
+        refresh_token: trainerSession.refresh_token
+      })
+
       setName(''); setEmail(''); setPassword(''); setShowAdd(false)
       fetchClients()
     } catch (err) {
-      setError('Something went wrong. Please try again.')
+      setError('Something went wrong: ' + err.message)
     }
     setAdding(false)
   }
