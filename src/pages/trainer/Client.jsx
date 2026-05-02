@@ -102,6 +102,7 @@ export default function TrainerClient() {
         <nav className="sidebar-nav">
           <Link to="/trainer" className="nav-item active"><div className="nav-dot" />My Clients</Link>
           <Link to="/trainer/videos" className="nav-item"><div className="nav-dot" />Video Library</Link>
+          <Link to="/trainer?tab=settings" className="nav-item"><div className="nav-dot" />Settings</Link>
         </nav>
         <div className="sidebar-footer">
           <div className="avatar">{initials(profile?.full_name)}</div>
@@ -126,7 +127,6 @@ export default function TrainerClient() {
         </div>
         <div className="page-sub" style={{marginTop:'8px'}}>Workout plan builder</div>
 
-        {/* INTAKE FORM */}
         {intakeForm && (
           <div style={{marginBottom:'20px'}}>
             <div className="add-btn" style={{marginBottom:'0'}} onClick={() => setShowIntake(!showIntake)}>
@@ -176,7 +176,6 @@ export default function TrainerClient() {
           </div>
         )}
 
-        {/* DAY SELECTOR */}
         <div style={{display:'flex', gap:'6px', flexWrap:'wrap', marginBottom:'20px'}}>
           {DAYS.map(d => {
             const dayData = days.find(day => day.day_of_week === d)
@@ -273,9 +272,9 @@ export default function TrainerClient() {
           <Link to="/trainer/videos" className="mobile-nav-item">
             <div className="mobile-nav-dot" />Videos
           </Link>
-          <div className="mobile-nav-item" onClick={signOut}>
-            <div className="mobile-nav-dot" />Sign out
-          </div>
+          <Link to="/trainer?tab=settings" className="mobile-nav-item">
+            <div className="mobile-nav-dot" />Settings
+          </Link>
         </div>
       </nav>
     </div>

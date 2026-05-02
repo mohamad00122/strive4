@@ -61,14 +61,17 @@ export default function AdminDashboard() {
   }
 
   const deleteAccount = async (id, role) => {
-    if (!confirm(`Permanently delete this ${role} account? This cannot be undone.`)) return
-    await supabase.from('clients').delete().eq('client_id', id)
-    await supabase.from('clients').delete().eq('trainer_id', id)
-    await supabase.from('profiles').delete().eq('id', id)
-    if (selectedTrainer?.id === id) setSelectedTrainer(null)
-    if (selectedClient?.id === id) setSelectedClient(null)
-    fetchAll()
-  }
+  if (!confirm(`Permanently delete this ${role} account? This cannot be undone.`)) return
+  await supabase.from('clients').delete().eq('client_id', id)
+  await supabase.from('clients').delete().eq('trainer_id', id)
+  await supabase.from('profiles').delete().eq('id', id)
+  await supabase.functions.invoke('delete-user', {
+    body: { userId: id }
+  })
+  if (selectedTrainer?.id === id) setSelectedTrainer(null)
+  if (selectedClient?.id === id) setSelectedClient(null)
+  fetchAll()
+}
 
   const viewTrainer = async (trainer) => {
     setSelectedTrainer(trainer)
