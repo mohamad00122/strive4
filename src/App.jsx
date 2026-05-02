@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './lib/AuthContext'
+import Landing from './pages/Landing'
 import SignUp from './pages/auth/SignUp'
 import Login from './pages/auth/Login'
 import Onboarding from './pages/auth/Onboarding'
@@ -34,7 +35,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={getHome()} />
+        <Route path="/" element={<Landing />} />
+        <Route path="/home" element={getHome()} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/login" element={<Login />} />
         <Route path="/onboarding" element={
