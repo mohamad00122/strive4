@@ -34,21 +34,30 @@ export default function TrainerDashboard() {
   }
 
   const addClient = async () => {
-  if (!name || !email || !password) return setError('Please fill in all fields.')
-  setAdding(true)
-  setError('')
-  const { data, error: fnError } = await supabase.functions.invoke('create-client', {
-    body: { email, password, fullName: name, trainerId: profile.id }
-  })
-  if (fnError || data?.error) {
-    setError(data?.error || 'Could not create client. Please try again.')
+    if (!name || !email || !password) return setError('Please fill in all fields.')
+    setAdding(true)
+    setError('')
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('create-client', {
+        body: { email, password, fullName: name, trainerId: profile.id }
+      })
+      if (fnError) {
+        setError('Could not create client: ' + fnError.message)
+        setAdding(false)
+        return
+      }
+      if (data?.error) {
+        setError(data.error)
+        setAdding(false)
+        return
+      }
+      setName(''); setEmail(''); setPassword(''); setShowAdd(false)
+      fetchClients()
+    } catch (err) {
+      setError('Something went wrong. Please try again.')
+    }
     setAdding(false)
-    return
   }
-  setName(''); setEmail(''); setPassword(''); setShowAdd(false)
-  fetchClients()
-  setAdding(false)
-}
 
   const saveSettings = async () => {
     setSaving(true)
