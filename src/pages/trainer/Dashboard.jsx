@@ -34,20 +34,22 @@ export default function TrainerDashboard() {
   }
 
   const addClient = async () => {
-    if (!name || !email || !password) return setError('Please fill in all fields.')
-    setAdding(true)
-    setError('')
-    const { data: { user }, error: signUpError } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { full_name: name, role: 'client' } }
-    })
-    if (signUpError) { setError(signUpError.message); setAdding(false); return }
-    await supabase.from('profiles').upsert({ id: user.id, email, full_name: name, role: 'client', onboarded: true })
-    await supabase.from('clients').insert({ trainer_id: profile.id, client_id: user.id })
-    setName(''); setEmail(''); setPassword(''); setShowAdd(false)
-    fetchClients()
-    setAdding(false)
-  }
+  if (!name || !email || !password) return setError('Please fill in all fields.')
+  setAdding(true)
+  setError('')
+  const { data: { user }, error: signUpError } = await supabase.auth.signUp({
+    email, password,
+    options: { data: { full_name: name, role: 'client' } }
+  })
+  if (signUpError) { setError(signUpError.message); setAdding(false); return }
+  await supabase.from('profiles').upsert({ 
+    id: user.id, email, full_name: name, role: 'client', onboarded: false 
+  })
+  await supabase.from('clients').insert({ trainer_id: profile.id, client_id: user.id })
+  setName(''); setEmail(''); setPassword(''); setShowAdd(false)
+  fetchClients()
+  setAdding(false)
+}
 
   const saveSettings = async () => {
     setSaving(true)

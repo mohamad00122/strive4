@@ -23,6 +23,8 @@ export default function TrainerClient() {
   const [exVideo, setExVideo] = useState('')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
+  const [intakeForm, setIntakeForm] = useState(null)
+  const [showIntake, setShowIntake] = useState(false)
 
   useEffect(() => { init() }, [clientId])
 
@@ -39,6 +41,8 @@ export default function TrainerClient() {
     await fetchDays(currentPlan.id)
     const { data: videoData } = await supabase.from('videos').select('*').eq('trainer_id', profile.id).order('title')
     setVideos(videoData || [])
+    const { data: intake } = await supabase.from('intake_forms').select('*').eq('client_id', clientId).single()
+    setIntakeForm(intake)
     setLoading(false)
   }
 
@@ -122,6 +126,57 @@ export default function TrainerClient() {
         </div>
         <div className="page-sub" style={{marginTop:'8px'}}>Workout plan builder</div>
 
+        {/* INTAKE FORM */}
+        {intakeForm && (
+          <div style={{marginBottom:'20px'}}>
+            <div className="add-btn" style={{marginBottom:'0'}} onClick={() => setShowIntake(!showIntake)}>
+              {showIntake ? '✕ Hide health form' : '📋 View health & goals form'}
+            </div>
+            {showIntake && (
+              <div className="card" style={{marginTop:'10px'}}>
+                <div style={{fontFamily:'var(--font-head)', fontSize:'14px', fontWeight:'700', marginBottom:'14px'}}>Client Health Form</div>
+                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px', marginBottom:'14px'}}>
+                  {[['Age', intakeForm.age], ['Weight', intakeForm.weight], ['Height', intakeForm.height]].map(([label, val]) => (
+                    <div key={label} style={{background:'var(--surface3)', borderRadius:'10px', padding:'10px', textAlign:'center'}}>
+                      <div style={{fontFamily:'var(--font-head)', fontSize:'16px', fontWeight:'700', color:'var(--accent)'}}>{val || '—'}</div>
+                      <div style={{fontSize:'10px', color:'var(--text3)', marginTop:'2px', textTransform:'uppercase', letterSpacing:'0.5px'}}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{marginBottom:'14px'}}>
+                  <span className="label">Fitness goal</span>
+                  <div style={{fontSize:'14px', color:'var(--accent)', fontFamily:'var(--font-head)', fontWeight:'600'}}>{intakeForm.fitness_goal || '—'}</div>
+                </div>
+                <div style={{fontFamily:'var(--font-head)', fontSize:'11px', fontWeight:'700', color:'var(--text3)', textTransform:'uppercase', letterSpacing:'1px', marginBottom:'10px'}}>PAR-Q Answers</div>
+                {[
+                  ['Heart condition', intakeForm.heart_condition],
+                  ['Chest pain during activity', intakeForm.chest_pain_activity],
+                  ['Chest pain at rest', intakeForm.chest_pain_rest],
+                  ['Dizziness / loss of consciousness', intakeForm.dizziness],
+                  ['Bone or joint problem', intakeForm.bone_joint_problem],
+                  ['Prescription medication', intakeForm.prescription_medication],
+                  ['Other reason', intakeForm.other_reason],
+                ].map(([label, val]) => (
+                  <div key={label} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:'0.5px solid var(--border)'}}>
+                    <div style={{fontSize:'12px', color:'var(--text2)'}}>{label}</div>
+                    <div style={{fontSize:'11px', fontFamily:'var(--font-head)', fontWeight:'600', padding:'3px 10px', borderRadius:'8px',
+                      background: val ? 'var(--red-dim)' : 'var(--green-dim)',
+                      color: val ? 'var(--red)' : 'var(--green)'}}>
+                      {val ? 'YES' : 'NO'}
+                    </div>
+                  </div>
+                ))}
+                {intakeForm.other_reason_details && (
+                  <div style={{marginTop:'10px', fontSize:'12px', color:'var(--text2)'}}>
+                    <span style={{color:'var(--text3)'}}>Details: </span>{intakeForm.other_reason_details}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* DAY SELECTOR */}
         <div style={{display:'flex', gap:'6px', flexWrap:'wrap', marginBottom:'20px'}}>
           {DAYS.map(d => {
             const dayData = days.find(day => day.day_of_week === d)
@@ -141,7 +196,7 @@ export default function TrainerClient() {
 
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'14px'}}>
           <div style={{fontFamily:'var(--font-head)', fontSize:'16px', fontWeight:'700'}}>{activeDay}</div>
-          <button className={`btn btn-sm ${isRest ? 'btn-secondary' : 'btn-secondary'}`} onClick={toggleRestDay}>
+          <button className="btn btn-secondary btn-sm" onClick={toggleRestDay}>
             {isRest ? '✓ Rest day — click to undo' : 'Mark as rest day'}
           </button>
         </div>
@@ -186,7 +241,7 @@ export default function TrainerClient() {
                 <div style={{fontFamily:'var(--font-head)', fontSize:'15px', fontWeight:'600', marginBottom:'6px'}}>No exercises yet</div>
                 <div style={{fontSize:'13px', color:'var(--text3)'}}>Add exercises for {activeDay}</div>
               </div>
-            ) : exercises.map((ex, i) => (
+            ) : exercises.map((ex) => (
               <div key={ex.id} className="card" style={{marginBottom:'9px'}}>
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
                   <div style={{flex:1}}>
