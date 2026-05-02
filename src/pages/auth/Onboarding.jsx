@@ -6,13 +6,7 @@ import { useAuth } from '../../lib/AuthContext'
 export default function Onboarding() {
   const { profile, fetchProfile, user } = useAuth()
   const navigate = useNavigate()
-  const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
-
-  // Trainer onboarding state
-  const [clientName, setClientName] = useState('')
-  const [clientEmail, setClientEmail] = useState('')
-  const [clientPassword, setClientPassword] = useState('')
   const [error, setError] = useState('')
 
   // Client intake form state
@@ -20,13 +14,13 @@ export default function Onboarding() {
   const [weight, setWeight] = useState('')
   const [height, setHeight] = useState('')
   const [fitnessGoal, setFitnessGoal] = useState('')
-  const [heartCondition, setHeartCondition] = useState(false)
-  const [chestPainActivity, setChestPainActivity] = useState(false)
-  const [chestPainRest, setChestPainRest] = useState(false)
-  const [dizziness, setDizziness] = useState(false)
-  const [boneJoint, setBoneJoint] = useState(false)
-  const [medication, setMedication] = useState(false)
-  const [otherReason, setOtherReason] = useState(false)
+  const [heartCondition, setHeartCondition] = useState(null)
+  const [chestPainActivity, setChestPainActivity] = useState(null)
+  const [chestPainRest, setChestPainRest] = useState(null)
+  const [dizziness, setDizziness] = useState(null)
+  const [boneJoint, setBoneJoint] = useState(null)
+  const [medication, setMedication] = useState(null)
+  const [otherReason, setOtherReason] = useState(null)
   const [otherDetails, setOtherDetails] = useState('')
   const [agreed, setAgreed] = useState(false)
 
@@ -39,8 +33,10 @@ export default function Onboarding() {
   }, [profile])
 
   const completeOnboarding = async () => {
+    setLoading(true)
     await supabase.from('profiles').update({ onboarded: true }).eq('id', user.id)
     await fetchProfile(user.id)
+    setLoading(false)
   }
 
   const submitIntakeForm = async () => {
@@ -52,12 +48,13 @@ export default function Onboarding() {
       client_id: user.id,
       age: age ? parseInt(age) : null,
       weight, height, fitness_goal: fitnessGoal,
-      heart_condition: heartCondition,
-      chest_pain_activity: chestPainActivity,
-      chest_pain_rest: chestPainRest,
-      dizziness, bone_joint_problem: boneJoint,
-      prescription_medication: medication,
-      other_reason: otherReason,
+      heart_condition: heartCondition || false,
+      chest_pain_activity: chestPainActivity || false,
+      chest_pain_rest: chestPainRest || false,
+      dizziness: dizziness || false,
+      bone_joint_problem: boneJoint || false,
+      prescription_medication: medication || false,
+      other_reason: otherReason || false,
       other_reason_details: otherDetails,
       agreed
     })
@@ -93,53 +90,20 @@ export default function Onboarding() {
       <div className="auth-box" style={{maxWidth:'480px'}}>
         <div className="auth-logo">Strive<span>.</span></div>
 
-        {/* TRAINER ONBOARDING */}
+        {/* TRAINER — just welcome and go */}
         {isTrainer && (
-          <>
-            <div style={{display:'flex', justifyContent:'center', gap:'6px', margin:'16px 0 24px'}}>
-              {[1,2].map(s => (
-                <div key={s} style={{height:'5px', borderRadius:'3px',
-                  background: step >= s ? 'var(--accent)' : 'var(--surface3)',
-                  width: step >= s ? '28px' : '8px', transition:'all 0.3s'}} />
-              ))}
+          <div style={{textAlign:'center', marginTop:'16px'}}>
+            <div style={{fontSize:'48px', marginBottom:'16px'}}>🏋️</div>
+            <div style={{fontFamily:'var(--font-head)', fontSize:'20px', fontWeight:'700', marginBottom:'10px'}}>
+              Welcome to Strive{profile?.full_name ? `, ${profile.full_name.split(' ')[0]}` : ''}!
             </div>
-
-            {step === 1 && (
-              <>
-                <div style={{textAlign:'center', marginBottom:'24px'}}>
-                  <div style={{fontSize:'44px', marginBottom:'14px'}}>🏋️</div>
-                  <div style={{fontFamily:'var(--font-head)', fontSize:'20px', fontWeight:'700', marginBottom:'8px'}}>
-                    Welcome to Strive{profile?.full_name ? `, ${profile.full_name.split(' ')[0]}` : ''}!
-                  </div>
-                  <div style={{fontSize:'13px', color:'var(--text2)', lineHeight:'1.6'}}>
-                    You're set up as a Trainer. Build custom workout plans and attach demo videos for each of your clients.
-                  </div>
-                </div>
-                <button className="btn btn-primary" onClick={() => setStep(2)}>Next →</button>
-              </>
-            )}
-
-            {step === 2 && (
-              <>
-                <div style={{fontFamily:'var(--font-head)', fontSize:'18px', fontWeight:'700', marginBottom:'6px'}}>Add your first client</div>
-                <div style={{fontSize:'13px', color:'var(--text3)', marginBottom:'20px'}}>They'll be instantly linked to your account — you send them their login details</div>
-                {error && <div className="error-msg">{error}</div>}
-                <div style={{marginBottom:'10px'}}>
-                  <input className="input" placeholder="Client's full name" value={clientName} onChange={e => setClientName(e.target.value)} />
-                </div>
-                <div style={{marginBottom:'10px'}}>
-                  <input className="input" type="email" placeholder="Client's email" value={clientEmail} onChange={e => setClientEmail(e.target.value)} />
-                </div>
-                <div style={{marginBottom:'20px'}}>
-                  <input className="input" type="password" placeholder="Temporary password" value={clientPassword} onChange={e => setClientPassword(e.target.value)} />
-                </div>
-                <button className="btn btn-primary" onClick={completeOnboarding} style={{marginBottom:'10px'}}>
-                  Get started →
-                </button>
-                <button className="btn btn-secondary" onClick={completeOnboarding}>Skip for now</button>
-              </>
-            )}
-          </>
+            <div style={{fontSize:'13px', color:'var(--text2)', lineHeight:'1.7', marginBottom:'28px'}}>
+              You're all set as a Trainer. Head to your dashboard to add your first client and start building their workout plan.
+            </div>
+            <button className="btn btn-primary" onClick={completeOnboarding} disabled={loading}>
+              {loading ? 'Loading...' : 'Go to my dashboard →'}
+            </button>
+          </div>
         )}
 
         {/* CLIENT INTAKE FORM */}
