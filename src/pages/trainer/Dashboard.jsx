@@ -25,6 +25,7 @@ const TABS = [
 ]
 
 const VIDEO_CATEGORIES = ['All', 'Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core', 'Cardio', 'Full Body']
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 
 export default function TrainerDashboard() {
   const { profile, user, signOut, refreshProfile } = useAuth()
@@ -53,6 +54,14 @@ export default function TrainerDashboard() {
   const [uploadFile, setUploadFile] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [playVideo, setPlayVideo] = useState(null)
+
+  const [showNewClientModal, setShowNewClientModal] = useState(false)
+  const [newClientName, setNewClientName] = useState('')
+  const [newClientEmail, setNewClientEmail] = useState('')
+  const [newClientPassword, setNewClientPassword] = useState('')
+  const [newClientCreating, setNewClientCreating] = useState(false)
+  const [newClientSuccess, setNewClientSuccess] = useState('')
+  const [newClientError, setNewClientError] = useState('')
 
   const [fullName, setFullName] = useState(profile?.full_name || '')
   const [newPassword, setNewPassword] = useState('')
@@ -160,6 +169,39 @@ export default function TrainerDashboard() {
     setTimeout(() => setSettingsMsg(''), 2500)
   }
 
+  const createClient = async () => {
+    if (!newClientName || !newClientEmail || !newClientPassword) {
+      setNewClientError('Please fill all fields.')
+      return
+    }
+    setNewClientCreating(true)
+    setNewClientError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/create-client`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          full_name: newClientName,
+          email: newClientEmail,
+          password: newClientPassword,
+          role: 'client',
+          trainer_id: user.id,
+        })
+      })
+      const data = await res.json()
+      if (data.error) { setNewClientError(data.error); setNewClientCreating(false); return }
+      setNewClientSuccess(`Client created: ${newClientEmail}`)
+      await loadAll()
+    } catch (e) {
+      setNewClientError(e.message)
+    }
+    setNewClientCreating(false)
+  }
+
   const filteredClients = clients.filter(c => {
     const name = c.profiles?.full_name?.toLowerCase() || ''
     const matchSearch = name.includes(clientSearch.toLowerCase())
@@ -190,7 +232,7 @@ export default function TrainerDashboard() {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <Avatar name={profile?.full_name} size="sm" />
+          <Avatar name={profile?.full_name} email={profile?.email} size="sm" />
           <button className="sidebar-signout" onClick={signOut}>Sign out</button>
         </div>
       </aside>
@@ -277,7 +319,12 @@ export default function TrainerDashboard() {
         {/* CLIENTS */}
         {tab === 'clients' && (
           <>
-            <div className="page-header"><div className="page-title">Clients</div></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="page-title">Clients</div>
+              <button className="btn btn-amber btn-sm" onClick={() => { setShowNewClientModal(true); setNewClientSuccess(''); setNewClientError('') }}>
+                <IconPlus size={14} /> New Client
+              </button>
+            </div>
 
             <div style={{ position: 'relative', marginBottom: 12 }}>
               <IconSearch size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }} />
@@ -476,6 +523,35 @@ export default function TrainerDashboard() {
       </main>
 
       <BottomNav tabs={TABS} activeTab={tab} onTabChange={setTab} />
+
+      <Modal open={showNewClientModal} onClose={() => { setShowNewClientModal(false); setNewClientSuccess(''); setNewClientError('') }} title="New Client">
+        {newClientSuccess ? (
+          <div>
+            <div className="success-msg">{newClientSuccess}</div>
+            <button className="btn btn-amber" onClick={() => { setShowNewClientModal(false); setNewClientSuccess(''); setNewClientName(''); setNewClientEmail(''); setNewClientPassword('') }}>Done</button>
+          </div>
+        ) : (
+          <>
+            {newClientError && <div className="error-msg">{newClientError}</div>}
+            <div className="form-group">
+              <span className="label">Full name</span>
+              <input className="input" placeholder="Full name" value={newClientName} onChange={e => setNewClientName(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <span className="label">Email</span>
+              <input className="input" type="email" placeholder="email@example.com" value={newClientEmail} onChange={e => setNewClientEmail(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <span className="label">Temporary password</span>
+              <input className="input" type="password" placeholder="Min 6 characters" value={newClientPassword} onChange={e => setNewClientPassword(e.target.value)} />
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 14 }}>Client will complete onboarding when they first log in.</div>
+            <button className="btn btn-amber" onClick={createClient} disabled={newClientCreating}>
+              {newClientCreating ? <Spinner size={18} /> : 'Create Client →'}
+            </button>
+          </>
+        )}
+      </Modal>
 
       <Modal open={showUploadModal} onClose={() => setShowUploadModal(false)} title="Upload Video">
         <div className="form-group">

@@ -162,7 +162,7 @@ export default function AdminDashboard() {
 
         <div style={{ marginTop: 'auto', padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Avatar name={profile?.full_name} size="sm" />
+            <Avatar name={profile?.full_name} email={profile?.email} size="sm" />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile?.full_name}</div>
             </div>

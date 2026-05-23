@@ -5,11 +5,11 @@ const SIZES = {
   xl: { width: 56, height: 56, fontSize: 20 }
 }
 
-export default function Avatar({ name, size = 'md', style = {} }) {
+export default function Avatar({ name, email, size = 'md', style = {} }) {
   const s = SIZES[size] || SIZES.md
   const initials = name
     ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-    : '??'
+    : email?.[0]?.toUpperCase() ?? '?'
 
   return (
     <div style={{
