@@ -80,7 +80,8 @@ h1, h2, h3, .syne {
   color: var(--red);
   border: 1px solid rgba(239,68,68,0.2);
 }
-.btn-sm { padding: 7px 14px; font-size: 12px; border-radius: 8px; }
+.btn-sm { padding: 7px 14px; font-size: 12px; border-radius: 8px; width: auto; }
+.btn-amber.btn-sm { width: auto; }
 .btn-xs { padding: 5px 10px; font-size: 11px; border-radius: 7px; }
 
 /* ── INPUTS ────────────────────────────────────────────────────── */

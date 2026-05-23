@@ -56,13 +56,13 @@ export default function AdminDashboard() {
   const loadAll = async () => {
     setLoading(true)
     const { data: trainersData } = await supabase.from('profiles').select('*').eq('role', 'trainer')
-    const [clientsRes, docsRes, activityRes] = await Promise.all([
-      supabase.from('profiles').select('*, clients!clients_client_id_fkey(trainer_id, status, profiles!clients_trainer_id_fkey(full_name))').eq('role', 'client'),
+    const { data: clientsData } = await supabase.from('profiles').select('*').eq('role', 'client')
+    const [docsRes, activityRes] = await Promise.all([
       supabase.from('signed_documents').select('*, client:profiles!signed_documents_client_id_fkey(full_name), trainer:clients!signed_documents_client_id_fkey(profiles!clients_trainer_id_fkey(full_name))').order('created_at', { ascending: false }),
       supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(20),
     ])
     setTrainers(trainersData || [])
-    setClients(clientsRes.data || [])
+    setClients(clientsData || [])
     setDocuments(docsRes.data || [])
     setActivityLog(activityRes.data || [])
     setLoading(false)
