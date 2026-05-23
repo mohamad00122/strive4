@@ -4,19 +4,21 @@ import { supabase } from './supabase'
 const AuthContext = createContext({})
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null)
+  const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
+  const user = session?.user ?? null
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
+      setSession(session)
       if (session?.user) fetchProfile(session.user.id)
       else setLoading(false)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
+      setSession(session)
       if (session?.user) fetchProfile(session.user.id)
       else { setProfile(null); setLoading(false) }
     })
@@ -34,14 +36,19 @@ export const AuthProvider = ({ children }) => {
     setLoading(false)
   }
 
+  const refreshProfile = async () => {
+    if (!user) return
+    await fetchProfile(user.id)
+  }
+
   const signOut = async () => {
     await supabase.auth.signOut()
-    setUser(null)
+    setSession(null)
     setProfile(null)
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signOut, fetchProfile }}>
+    <AuthContext.Provider value={{ session, user, profile, loading, signOut, refreshProfile, fetchProfile }}>
       {children}
     </AuthContext.Provider>
   )

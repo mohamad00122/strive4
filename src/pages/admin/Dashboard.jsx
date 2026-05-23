@@ -1,430 +1,517 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/AuthContext'
+import Avatar from '../../components/Avatar'
+import Badge from '../../components/Badge'
+import Modal from '../../components/Modal'
+import StatTile from '../../components/StatTile'
+import Spinner from '../../components/Spinner'
+import { IconUsers, IconBarbell, IconAlertTriangle, IconPlus, IconTrash } from '@tabler/icons-react'
+
+const SECTIONS = {
+  crm: ['Overview', 'Revenue'],
+  people: ['Trainers', 'Clients', 'Documents'],
+  platform: ['Settings'],
+}
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 
 export default function AdminDashboard() {
-  const { profile, signOut } = useAuth()
-  const navigate = useNavigate()
-  const [stats, setStats] = useState({ trainers: 0, clients: 0, videos: 0 })
+  const { profile, user, signOut, refreshProfile } = useAuth()
+  const [section, setSection] = useState('Overview')
+  const [loading, setLoading] = useState(true)
+
   const [trainers, setTrainers] = useState([])
   const [clients, setClients] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState('overview')
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [adminRole, setAdminRole] = useState('trainer')
-  const [error, setError] = useState('')
-  const [adding, setAdding] = useState(false)
-  const [success, setSuccess] = useState('')
-  const [newName, setNewName] = useState(profile?.full_name || '')
-  const [newEmail, setNewEmail] = useState(profile?.email || '')
+  const [documents, setDocuments] = useState([])
+  const [activityLog, setActivityLog] = useState([])
+
+  const [clientSearch, setClientSearch] = useState('')
+  const [clientFilter, setClientFilter] = useState('All')
+  const [trainerExpanded, setTrainerExpanded] = useState({})
+
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createRole, setCreateRole] = useState('trainer')
+  const [createName, setCreateName] = useState('')
+  const [createEmail, setCreateEmail] = useState('')
+  const [createPassword, setCreatePassword] = useState('')
+  const [createTrainerId, setCreateTrainerId] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createSuccess, setCreateSuccess] = useState('')
+  const [createError, setCreateError] = useState('')
+
+  const [showDocModal, setShowDocModal] = useState(false)
+  const [selectedDoc, setSelectedDoc] = useState(null)
+
+  const [showClientModal, setShowClientModal] = useState(false)
+  const [selectedClientProfile, setSelectedClientProfile] = useState(null)
+
+  const [fullName, setFullName] = useState(profile?.full_name || '')
   const [newPassword, setNewPassword] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saveMsg, setSaveMsg] = useState('')
-  const [selectedTrainer, setSelectedTrainer] = useState(null)
-  const [selectedClient, setSelectedClient] = useState(null)
-  const [trainerClients, setTrainerClients] = useState([])
-  const [clientPlan, setClientPlan] = useState(null)
-  const [clientDays, setClientDays] = useState([])
-  const [activeDay, setActiveDay] = useState('')
-  const [trainerVideos, setTrainerVideos] = useState([])
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [settingsMsg, setSettingsMsg] = useState('')
 
-  const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+  useEffect(() => { loadAll() }, [])
 
-  useEffect(() => { fetchAll() }, [])
-
-  const fetchAll = async () => {
-    const { data: allProfiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
-    const trainersData = allProfiles?.filter(p => p.role === 'trainer') || []
-    const clientsData = allProfiles?.filter(p => p.role === 'client') || []
-    const { count: videoCount } = await supabase.from('videos').select('*', { count: 'exact', head: true })
-    setTrainers(trainersData)
-    setClients(clientsData)
-    setStats({ trainers: trainersData.length, clients: clientsData.length, videos: videoCount || 0 })
+  const loadAll = async () => {
+    setLoading(true)
+    const [trainersRes, clientsRes, docsRes, activityRes] = await Promise.all([
+      supabase.from('profiles').select('*, clients!clients_trainer_id_fkey(client_id)').eq('role', 'trainer'),
+      supabase.from('profiles').select('*, clients!clients_client_id_fkey(trainer_id, status, profiles!clients_trainer_id_fkey(full_name))').eq('role', 'client'),
+      supabase.from('signed_documents').select('*, client:profiles!signed_documents_client_id_fkey(full_name), trainer:clients!signed_documents_client_id_fkey(profiles!clients_trainer_id_fkey(full_name))').order('created_at', { ascending: false }),
+      supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(20),
+    ])
+    setTrainers(trainersRes.data || [])
+    setClients(clientsRes.data || [])
+    setDocuments(docsRes.data || [])
+    setActivityLog(activityRes.data || [])
     setLoading(false)
   }
 
   const createAccount = async () => {
-    if (!name || !email || !password) return setError('Please fill in all fields.')
-    setAdding(true); setError(''); setSuccess('')
-    const { error: err } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { full_name: name, role: adminRole } }
-    })
-    if (err) { setError(err.message); setAdding(false); return }
-    setSuccess(`${adminRole.charAt(0).toUpperCase() + adminRole.slice(1)} account created successfully.`)
-    setName(''); setEmail(''); setPassword('')
-    fetchAll()
-    setAdding(false)
+    if (!createName || !createEmail || !createPassword) {
+      setCreateError('Please fill all fields.')
+      return
+    }
+    setCreating(true)
+    setCreateError('')
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/create-client`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify({
+          full_name: createName,
+          email: createEmail,
+          password: createPassword,
+          role: createRole,
+          trainer_id: createRole === 'client' ? createTrainerId || null : null,
+        })
+      })
+      const data = await res.json()
+      if (data.error) { setCreateError(data.error); setCreating(false); return }
+      setCreateSuccess(`Account created: ${createEmail}`)
+      setCreateName(''); setCreateEmail(''); setCreatePassword(''); setCreateTrainerId('')
+      await loadAll()
+    } catch (e) {
+      setCreateError(e.message)
+    }
+    setCreating(false)
   }
 
-  const deleteAccount = async (id, role) => {
-  if (!confirm(`Permanently delete this ${role} account? This cannot be undone.`)) return
-  await supabase.from('clients').delete().eq('client_id', id)
-  await supabase.from('clients').delete().eq('trainer_id', id)
-  await supabase.from('profiles').delete().eq('id', id)
-  await supabase.functions.invoke('delete-user', {
-    body: { userId: id }
-  })
-  if (selectedTrainer?.id === id) setSelectedTrainer(null)
-  if (selectedClient?.id === id) setSelectedClient(null)
-  fetchAll()
-}
-
-  const viewTrainer = async (trainer) => {
-    setSelectedTrainer(trainer)
-    setSelectedClient(null)
-    setTab('trainer-detail')
-    const { data } = await supabase
-      .from('clients')
-      .select('*, client:client_id(id, full_name, email)')
-      .eq('trainer_id', trainer.id)
-    setTrainerClients(data || [])
-    const { data: videos } = await supabase
-      .from('videos')
-      .select('*')
-      .eq('trainer_id', trainer.id)
-      .order('created_at', { ascending: false })
-    setTrainerVideos(videos || [])
-  }
-
-  const viewClient = async (client) => {
-    setSelectedClient(client)
-    setTab('client-detail')
-    const { data: plans } = await supabase
-      .from('workout_plans')
-      .select('id')
-      .eq('client_id', client.id)
-    if (!plans || plans.length === 0) return
-    const { data: days } = await supabase
-      .from('workout_days')
-      .select('*, exercises(*, video:video_id(*))')
-      .eq('plan_id', plans[0].id)
-    setClientDays(days || [])
-    setActiveDay('Monday')
+  const deleteAccount = async (userId) => {
+    if (!window.confirm('Delete this account? This cannot be undone.')) return
+    try {
+      await fetch(`${SUPABASE_URL}/functions/v1/delete-user`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify({ user_id: userId })
+      })
+      await loadAll()
+    } catch (e) {
+      console.error(e)
+    }
   }
 
   const saveSettings = async () => {
-    setSaving(true); setSaveMsg('')
-    await supabase.from('profiles').update({ full_name: newName, email: newEmail }).eq('id', profile.id)
+    setSettingsSaving(true)
+    await supabase.from('profiles').update({ full_name: fullName }).eq('id', user.id)
     if (newPassword) await supabase.auth.updateUser({ password: newPassword })
-    setSaveMsg('Saved successfully!')
-    setSaving(false)
-    setTimeout(() => setSaveMsg(''), 3000)
+    await refreshProfile()
+    setSettingsMsg('Saved!')
+    setSettingsSaving(false)
+    setTimeout(() => setSettingsMsg(''), 2500)
   }
 
-  const initials = (name) => name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '??'
-  const tabs = ['overview', 'trainers', 'clients', 'add account', 'settings']
+  const inactiveClients = clients.filter(c => c.last_seen && (Date.now() - new Date(c.last_seen).getTime()) / 86400000 > 14)
 
-  const activeDayData = clientDays.find(d => d.day_of_week === activeDay)
-  const exercises = activeDayData?.exercises?.sort((a, b) => a.order_index - b.order_index) || []
+  const filteredClients = clients.filter(c => {
+    const name = c.full_name?.toLowerCase() || ''
+    const matchSearch = name.includes(clientSearch.toLowerCase())
+    const status = c.clients?.[0]?.status || 'active'
+    const matchFilter = clientFilter === 'All' || clientFilter.toLowerCase() === status
+    return matchSearch && matchFilter
+  })
+
+  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}><Spinner size={36} /></div>
 
   return (
-    <div className="app-layout">
-      <div className="sidebar">
-        <div className="sidebar-logo">Strive<span>.</span></div>
-        <nav className="sidebar-nav">
-          {tabs.map(t => (
-            <div key={t} className={`nav-item ${tab === t ? 'active' : ''}`} onClick={() => { setTab(t); setSelectedTrainer(null); setSelectedClient(null); }}>
-              <div className="nav-dot" />{t.charAt(0).toUpperCase() + t.slice(1)}
-            </div>
-          ))}
-        </nav>
-        <div className="sidebar-footer">
-          <div className="avatar">{initials(profile?.full_name)}</div>
-          <div className="sidebar-footer-name">Admin</div>
-          <button className="signout-btn" onClick={signOut}>Sign out</button>
+    <div className="admin-layout">
+      {/* Admin sidebar */}
+      <aside className="admin-sidebar">
+        <div style={{ padding: '0 16px 16px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 16, fontWeight: 800 }}>Strive<span style={{ color: 'var(--amber)' }}>.</span></div>
+          <div style={{ fontSize: 10, color: 'var(--text3)' }}>Admin</div>
         </div>
-      </div>
 
-      <div className="mobile-header">
-        <div className="mobile-logo">Strive<span>.</span></div>
-        <div className="avatar">{initials(profile?.full_name)}</div>
-      </div>
+        {Object.entries(SECTIONS).map(([sectionKey, items]) => (
+          <div key={sectionKey}>
+            <div className="admin-nav-section">{sectionKey}</div>
+            {items.map(item => (
+              <div key={item} className={`admin-nav-item ${section === item ? 'active' : ''}`} onClick={() => setSection(item)}>
+                {item}
+              </div>
+            ))}
+          </div>
+        ))}
 
-      <main className="main-content">
+        <div style={{ marginTop: 'auto', padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Avatar name={profile?.full_name} size="sm" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile?.full_name}</div>
+            </div>
+          </div>
+          <button onClick={signOut} style={{ marginTop: 8, width: '100%', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 11, textAlign: 'left', padding: '4px 0' }}>
+            Sign out →
+          </button>
+        </div>
+      </aside>
+
+      {/* Content */}
+      <div className="admin-content">
 
         {/* OVERVIEW */}
-        {tab === 'overview' && (
+        {section === 'Overview' && (
           <>
-            <div className="page-title">Platform Overview</div>
-            <div className="page-sub">Everything happening on Strive</div>
-            {loading ? <div className="loading" style={{minHeight:'200px'}}><div className="spinner" /></div> : (
-              <>
-                <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:'12px', marginBottom:'28px'}}>
-                  {[['Trainers', stats.trainers, '🏋️'], ['Clients', stats.clients, '💪'], ['Videos', stats.videos, '🎬']].map(([label, val, icon]) => (
-                    <div key={label} className="card" style={{textAlign:'center', padding:'20px'}}>
-                      <div style={{fontSize:'24px', marginBottom:'8px'}}>{icon}</div>
-                      <div style={{fontFamily:'var(--font-head)', fontSize:'28px', fontWeight:'700', color:'var(--accent)'}}>{val}</div>
-                      <div style={{fontSize:'12px', color:'var(--text3)', marginTop:'4px'}}>{label}</div>
-                    </div>
-                  ))}
+            <div className="page-header"><div className="page-title">Overview</div></div>
+
+            <div className="stat-grid">
+              <StatTile number="$0" label="Revenue" color="var(--amber)" />
+              <StatTile number={clients.length} label="Total clients" />
+              <StatTile number={trainers.length} label="Trainers" />
+              <StatTile number={inactiveClients.length} label="Alerts" color={inactiveClients.length > 0 ? 'var(--red)' : 'var(--text)'} />
+            </div>
+
+            {inactiveClients.length > 0 && (
+              <div style={{ background: 'var(--amber-dim)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 10, padding: 14, marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <IconAlertTriangle size={16} color="var(--amber)" />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--amber)' }}>
+                    {inactiveClients.length} client{inactiveClients.length !== 1 ? 's' : ''} inactive 14+ days
+                  </span>
                 </div>
-                <div style={{fontFamily:'var(--font-head)', fontSize:'16px', fontWeight:'700', marginBottom:'12px'}}>Recent trainers</div>
-                {trainers.length === 0 ? (
-                  <div className="card" style={{textAlign:'center', padding:'30px'}}>
-                    <div style={{fontSize:'13px', color:'var(--text3)'}}>No trainers yet</div>
+                {inactiveClients.map(c => (
+                  <div key={c.id} style={{ fontSize: 12, color: 'var(--amber-text)', marginBottom: 2 }}>· {c.full_name}</div>
+                ))}
+              </div>
+            )}
+
+            {/* Trainer performance */}
+            <div className="section-title" style={{ marginBottom: 10 }}>Trainer Performance</div>
+            {trainers.map(t => (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                <Avatar name={t.full_name} size="sm" />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{t.full_name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{(t.clients || []).length} clients</div>
+                </div>
+                <div style={{ width: 80 }}>
+                  <div className="compliance-bar">
+                    <div className="compliance-bar-fill" style={{ width: '60%' }} />
                   </div>
-                ) : trainers.slice(0, 3).map(t => (
-                  <div key={t.id} className="card" style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'8px', cursor:'pointer'}} onClick={() => viewTrainer(t)}>
-                    <div className="avatar">{initials(t.full_name)}</div>
-                    <div style={{flex:1}}>
-                      <div style={{fontFamily:'var(--font-head)', fontSize:'14px', fontWeight:'600'}}>{t.full_name}</div>
-                      <div style={{fontSize:'12px', color:'var(--text3)'}}>{t.email}</div>
+                </div>
+              </div>
+            ))}
+
+            {/* Activity feed */}
+            {activityLog.length > 0 && (
+              <>
+                <div className="section-title" style={{ marginTop: 20, marginBottom: 10 }}>Recent Activity</div>
+                {activityLog.map(a => (
+                  <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--border)', fontSize: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Badge variant="amber">{a.type || 'event'}</Badge>
+                      <span style={{ color: 'var(--text2)' }}>{a.description || '—'}</span>
                     </div>
-                    <div style={{fontSize:'12px', color:'var(--accent)', fontFamily:'var(--font-head)', fontWeight:'600'}}>View →</div>
+                    <span style={{ color: 'var(--text3)', flexShrink: 0, marginLeft: 8 }}>
+                      {new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
                   </div>
                 ))}
               </>
             )}
+
+            {/* Quick actions */}
+            <div style={{ marginTop: 24, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn btn-amber btn-sm" onClick={() => setShowCreateModal(true)}>
+                <IconPlus size={14} /> Create Account
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setSection('Clients')}>
+                <IconUsers size={14} /> View Clients
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setSection('Trainers')}>
+                <IconBarbell size={14} /> View Trainers
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* REVENUE */}
+        {section === 'Revenue' && (
+          <>
+            <div className="page-header"><div className="page-title">Revenue</div></div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 24 }}>
+              {['MRR', 'ARR', 'Total Earned', 'Active Subs'].map(label => (
+                <StatTile key={label} number="$0" label={label} color="var(--amber)" />
+              ))}
+            </div>
+            <div className="card" style={{ textAlign: 'center', padding: 40 }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>💳</div>
+              <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Stripe Integration Coming Soon</div>
+              <div style={{ fontSize: 13, color: 'var(--text3)' }}>Revenue tracking and billing will be available in a future update.</div>
+            </div>
           </>
         )}
 
         {/* TRAINERS */}
-        {tab === 'trainers' && (
+        {section === 'Trainers' && (
           <>
-            <div className="page-title">Trainers</div>
-            <div className="page-sub">{stats.trainers} trainer{stats.trainers !== 1 ? 's' : ''} on the platform</div>
-            {trainers.length === 0 ? (
-              <div className="card" style={{textAlign:'center', padding:'40px'}}>
-                <div style={{fontSize:'32px', marginBottom:'12px'}}>🏋️</div>
-                <div style={{fontFamily:'var(--font-head)', fontSize:'16px', fontWeight:'600', marginBottom:'6px'}}>No trainers yet</div>
-              </div>
-            ) : trainers.map(t => (
-              <div key={t.id} className="card" style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'8px'}}>
-                <div className="avatar">{initials(t.full_name)}</div>
-                <div style={{flex:1}}>
-                  <div style={{fontFamily:'var(--font-head)', fontSize:'14px', fontWeight:'600'}}>{t.full_name}</div>
-                  <div style={{fontSize:'12px', color:'var(--text3)'}}>{t.email}</div>
-                </div>
-                <button className="btn btn-secondary btn-sm" onClick={() => viewTrainer(t)}>View</button>
-                <button className="btn btn-danger btn-sm" onClick={() => deleteAccount(t.id, 'trainer')}>Delete</button>
-              </div>
-            ))}
-          </>
-        )}
-
-        {/* CLIENTS */}
-        {tab === 'clients' && (
-          <>
-            <div className="page-title">Clients</div>
-            <div className="page-sub">{stats.clients} client{stats.clients !== 1 ? 's' : ''} on the platform</div>
-            {clients.length === 0 ? (
-              <div className="card" style={{textAlign:'center', padding:'40px'}}>
-                <div style={{fontSize:'32px', marginBottom:'12px'}}>💪</div>
-                <div style={{fontFamily:'var(--font-head)', fontSize:'16px', fontWeight:'600', marginBottom:'6px'}}>No clients yet</div>
-              </div>
-            ) : clients.map(c => (
-              <div key={c.id} className="card" style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'8px'}}>
-                <div className="avatar">{initials(c.full_name)}</div>
-                <div style={{flex:1}}>
-                  <div style={{fontFamily:'var(--font-head)', fontSize:'14px', fontWeight:'600'}}>{c.full_name}</div>
-                  <div style={{fontSize:'12px', color:'var(--text3)'}}>{c.email}</div>
-                </div>
-                <button className="btn btn-secondary btn-sm" onClick={() => viewClient(c)}>View</button>
-                <button className="btn btn-danger btn-sm" onClick={() => deleteAccount(c.id, 'client')}>Delete</button>
-              </div>
-            ))}
-          </>
-        )}
-
-        {/* TRAINER DETAIL */}
-        {tab === 'trainer-detail' && selectedTrainer && (
-          <>
-            <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'4px'}}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setTab('trainers')}>← Back</button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div className="page-title">Trainers ({trainers.length})</div>
+              <button className="btn btn-amber btn-sm" onClick={() => { setCreateRole('trainer'); setShowCreateModal(true) }}>
+                <IconPlus size={14} /> New Trainer
+              </button>
             </div>
-            <div style={{display:'flex', alignItems:'center', gap:'14px', margin:'16px 0 4px'}}>
-              <div className="avatar" style={{width:'48px', height:'48px', fontSize:'16px'}}>{initials(selectedTrainer.full_name)}</div>
-              <div>
-                <div className="page-title" style={{marginBottom:'0'}}>{selectedTrainer.full_name}</div>
-                <div style={{fontSize:'12px', color:'var(--text3)'}}>{selectedTrainer.email}</div>
-              </div>
-            </div>
-            <div className="page-sub" style={{marginTop:'8px'}}>Trainer account overview</div>
 
-            <div style={{fontFamily:'var(--font-head)', fontSize:'15px', fontWeight:'700', marginBottom:'12px'}}>
-              Clients ({trainerClients.length})
-            </div>
-            {trainerClients.length === 0 ? (
-              <div className="card" style={{textAlign:'center', padding:'24px', marginBottom:'20px'}}>
-                <div style={{fontSize:'13px', color:'var(--text3)'}}>No clients yet</div>
-              </div>
-            ) : trainerClients.map(c => (
-              <div key={c.id} className="card" style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'8px', cursor:'pointer'}} onClick={() => viewClient(c.client)}>
-                <div className="avatar">{initials(c.client?.full_name)}</div>
-                <div style={{flex:1}}>
-                  <div style={{fontFamily:'var(--font-head)', fontSize:'14px', fontWeight:'600'}}>{c.client?.full_name}</div>
-                  <div style={{fontSize:'12px', color:'var(--text3)'}}>{c.client?.email}</div>
-                </div>
-                <div style={{fontSize:'12px', color:'var(--accent)', fontFamily:'var(--font-head)', fontWeight:'600'}}>View plan →</div>
-              </div>
-            ))}
-
-            <div style={{fontFamily:'var(--font-head)', fontSize:'15px', fontWeight:'700', margin:'20px 0 12px'}}>
-              Video Library ({trainerVideos.length})
-            </div>
-            {trainerVideos.length === 0 ? (
-              <div className="card" style={{textAlign:'center', padding:'24px'}}>
-                <div style={{fontSize:'13px', color:'var(--text3)'}}>No videos uploaded yet</div>
-              </div>
-            ) : trainerVideos.map(v => (
-              <div key={v.id} className="card" style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'8px'}}>
-                <div style={{width:'52px', height:'36px', background:'#03030c', borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', border:'0.5px solid rgba(91,140,255,0.12)', flexShrink:0}}>
-                  <div style={{width:0, height:0, borderTop:'5px solid transparent', borderBottom:'5px solid transparent', borderLeft:'9px solid var(--accent)', marginLeft:'2px'}} />
-                </div>
-                <div style={{flex:1}}>
-                  <div style={{fontFamily:'var(--font-head)', fontSize:'13px', fontWeight:'600'}}>{v.title}</div>
-                  <div style={{fontSize:'11px', color:'var(--accent)', marginTop:'2px'}}>{v.category}</div>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-
-        {/* CLIENT DETAIL */}
-        {tab === 'client-detail' && selectedClient && (
-          <>
-            <div style={{marginBottom:'16px'}}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setTab('clients')}>← Back</button>
-            </div>
-            <div style={{display:'flex', alignItems:'center', gap:'14px', marginBottom:'4px'}}>
-              <div className="avatar" style={{width:'48px', height:'48px', fontSize:'16px'}}>{initials(selectedClient.full_name)}</div>
-              <div>
-                <div className="page-title" style={{marginBottom:'0'}}>{selectedClient.full_name}</div>
-                <div style={{fontSize:'12px', color:'var(--text3)'}}>{selectedClient.email}</div>
-              </div>
-            </div>
-            <div className="page-sub" style={{marginTop:'8px'}}>Client workout plan</div>
-
-            <div style={{display:'flex', gap:'6px', flexWrap:'wrap', marginBottom:'20px'}}>
-              {DAYS.map(d => {
-                const dayData = clientDays.find(day => day.day_of_week === d)
-                const isRestDay = dayData?.is_rest_day
-                return (
-                  <div key={d} onClick={() => setActiveDay(d)}
-                    style={{padding:'7px 13px', borderRadius:'20px', fontSize:'12px', cursor:'pointer',
-                      fontFamily:'var(--font-head)', fontWeight:'700',
-                      background: activeDay === d ? 'var(--accent)' : isRestDay ? 'var(--surface3)' : 'var(--accent-dim)',
-                      color: activeDay === d ? '#fff' : isRestDay ? 'var(--text3)' : 'var(--accent)',
-                      border: `0.5px solid ${activeDay === d ? 'var(--accent)' : 'var(--border2)'}`,
-                      transition:'all 0.2s'}}>
-                    {d.slice(0, 3)}
+            {trainers.map(t => (
+              <div key={t.id}>
+                <div onClick={() => setTrainerExpanded(prev => ({ ...prev, [t.id]: !prev[t.id] }))}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer', marginBottom: trainerExpanded[t.id] ? 0 : 6,
+                    background: trainerExpanded[t.id] ? 'var(--amber-dim)' : 'var(--bg1)',
+                    border: `1px solid ${trainerExpanded[t.id] ? 'rgba(245,158,11,0.3)' : 'var(--border)'}`,
+                    borderRadius: trainerExpanded[t.id] ? '10px 10px 0 0' : 10, transition: 'all 0.15s' }}>
+                  <Avatar name={t.full_name} size="md" />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{t.full_name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{t.email} · {(t.clients || []).length} clients</div>
                   </div>
-                )
-              })}
-            </div>
-
-            {!activeDayData ? (
-              <div className="card" style={{textAlign:'center', padding:'32px'}}>
-                <div style={{fontSize:'28px', marginBottom:'10px'}}>📋</div>
-                <div style={{fontFamily:'var(--font-head)', fontSize:'15px', fontWeight:'600'}}>No plan for {activeDay}</div>
-              </div>
-            ) : activeDayData.is_rest_day ? (
-              <div className="card" style={{textAlign:'center', padding:'32px'}}>
-                <div style={{fontSize:'28px', marginBottom:'10px'}}>😴</div>
-                <div style={{fontFamily:'var(--font-head)', fontSize:'15px', fontWeight:'600'}}>Rest day</div>
-              </div>
-            ) : exercises.length === 0 ? (
-              <div className="card" style={{textAlign:'center', padding:'32px'}}>
-                <div style={{fontSize:'13px', color:'var(--text3)'}}>No exercises for {activeDay}</div>
-              </div>
-            ) : exercises.map(ex => (
-              <div key={ex.id} className="card" style={{marginBottom:'9px'}}>
-                <div style={{fontFamily:'var(--font-head)', fontSize:'14px', fontWeight:'600', marginBottom:'4px'}}>{ex.name}</div>
-                <div style={{fontSize:'12px', color:'var(--text3)'}}>
-                  {[ex.sets && `${ex.sets} sets`, ex.reps && `${ex.reps} reps`, ex.rest_time && `${ex.rest_time} rest`].filter(Boolean).join(' · ')}
+                  <button onClick={(e) => { e.stopPropagation(); deleteAccount(t.id) }} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4 }}>
+                    <IconTrash size={14} />
+                  </button>
                 </div>
-                {ex.notes && <div style={{fontSize:'12px', color:'var(--text2)', marginTop:'8px'}}>{ex.notes}</div>}
-                {ex.video && (
-                  <div style={{marginTop:'10px', paddingTop:'10px', borderTop:'0.5px solid var(--border)'}}>
-                    <div style={{fontSize:'11px', color:'var(--accent)', fontFamily:'var(--font-head)', fontWeight:'600', marginBottom:'6px'}}>🎬 {ex.video.title}</div>
-                    <video src={ex.video.video_url} controls style={{width:'100%', borderRadius:'10px', background:'#000'}} />
+
+                {trainerExpanded[t.id] && (
+                  <div style={{ background: 'var(--bg2)', border: '1px solid rgba(245,158,11,0.3)', borderTop: 'none', borderRadius: '0 0 10px 10px', padding: 14, marginBottom: 6 }}>
+                    <div className="section-title" style={{ marginBottom: 8 }}>Clients</div>
+                    {clients.filter(c => c.clients?.[0]?.trainer_id === t.id).map(c => (
+                      <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <Avatar name={c.full_name} size="sm" />
+                        <span style={{ fontSize: 12, color: 'var(--text2)' }}>{c.full_name}</span>
+                      </div>
+                    ))}
+                    {clients.filter(c => c.clients?.[0]?.trainer_id === t.id).length === 0 && (
+                      <div style={{ fontSize: 12, color: 'var(--text3)' }}>No clients assigned yet.</div>
+                    )}
                   </div>
                 )}
               </div>
             ))}
+
+            {trainers.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text3)', fontSize: 13 }}>No trainers yet.</div>}
           </>
         )}
 
-        {/* ADD ACCOUNT */}
-        {tab === 'add account' && (
+        {/* CLIENTS */}
+        {section === 'Clients' && (
           <>
-            <div className="page-title">Add Account</div>
-            <div className="page-sub">Create a new trainer, client, or admin account</div>
-            <div className="card" style={{maxWidth:'440px'}}>
-              {error && <div className="error-msg">{error}</div>}
-              {success && <div style={{background:'var(--green-dim)', border:'0.5px solid rgba(62,207,142,0.2)', borderRadius:'10px', padding:'10px 14px', fontSize:'13px', color:'var(--green)', marginBottom:'14px'}}>{success}</div>}
-              <div style={{marginBottom:'10px'}}>
-                <span className="label">Role</span>
-                <select className="input" value={adminRole} onChange={e => setAdminRole(e.target.value)}>
-                  <option value="trainer">Trainer</option>
-                  <option value="client">Client</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-              <div style={{marginBottom:'10px'}}>
-                <span className="label">Full name</span>
-                <input className="input" placeholder="Full name" value={name} onChange={e => setName(e.target.value)} />
-              </div>
-              <div style={{marginBottom:'10px'}}>
-                <span className="label">Email</span>
-                <input className="input" type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} />
-              </div>
-              <div style={{marginBottom:'20px'}}>
-                <span className="label">Password</span>
-                <input className="input" type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
-              </div>
-              <button className="btn btn-primary" onClick={createAccount} disabled={adding}>
-                {adding ? 'Creating...' : 'Create account →'}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="page-title">Clients ({clients.length})</div>
+              <button className="btn btn-amber btn-sm" onClick={() => { setCreateRole('client'); setShowCreateModal(true) }}>
+                <IconPlus size={14} /> New Client
               </button>
+            </div>
+
+            <div style={{ position: 'relative', marginBottom: 12 }}>
+              <input className="input" placeholder="Search clients..." value={clientSearch} onChange={e => setClientSearch(e.target.value)} style={{ paddingLeft: 12 }} />
+            </div>
+
+            <div className="chip-bar">
+              {['All', 'Active', 'Inactive'].map(f => (
+                <div key={f} className={`chip ${clientFilter === f ? 'active' : ''}`} onClick={() => setClientFilter(f)}>{f}</div>
+              ))}
+            </div>
+
+            {filteredClients.map(c => (
+              <div key={c.id} onClick={() => { setSelectedClientProfile(c); setShowClientModal(true) }}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer', marginBottom: 6,
+                  background: 'var(--bg1)', border: '1px solid var(--border)', borderRadius: 10, transition: 'all 0.15s' }}>
+                <Avatar name={c.full_name} size="md" />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{c.full_name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+                    Trainer: {c.clients?.[0]?.profiles?.full_name || 'Unassigned'} ·
+                    Last seen: {c.last_seen ? new Date(c.last_seen).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'never'}
+                  </div>
+                </div>
+                <Badge variant={c.clients?.[0]?.status === 'inactive' ? 'red' : 'green'}>
+                  {c.clients?.[0]?.status || 'active'}
+                </Badge>
+              </div>
+            ))}
+
+            {filteredClients.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text3)', fontSize: 13 }}>No clients found.</div>}
+          </>
+        )}
+
+        {/* DOCUMENTS */}
+        {section === 'Documents' && (
+          <>
+            <div className="page-header"><div className="page-title">Signed Documents</div></div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    {['Client', 'Document Type', 'Signed As', 'Date'].map(h => (
+                      <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {documents.map(doc => (
+                    <tr key={doc.id} onClick={() => { setSelectedDoc(doc); setShowDocModal(true) }}
+                      style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'}
+                      onMouseLeave={e => e.currentTarget.style.background = ''}>
+                      <td style={{ padding: '10px 12px', color: 'var(--text)' }}>{doc.client?.full_name || '—'}</td>
+                      <td style={{ padding: '10px 12px', color: 'var(--text2)' }}>
+                        {doc.document_type === 'liability_waiver' ? 'Liability Waiver' : 'Training Contract'}
+                      </td>
+                      <td style={{ padding: '10px 12px', fontStyle: 'italic', color: 'var(--amber)' }}>{doc.signed_as || '—'}</td>
+                      <td style={{ padding: '10px 12px', color: 'var(--text3)' }}>
+                        {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {documents.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text3)', fontSize: 13 }}>No signed documents yet.</div>}
             </div>
           </>
         )}
 
         {/* SETTINGS */}
-        {tab === 'settings' && (
+        {section === 'Settings' && (
           <>
-            <div className="page-title">Settings</div>
-            <div className="page-sub">Update your admin account info</div>
-            <div className="card" style={{maxWidth:'440px', marginBottom:'16px'}}>
-              {saveMsg && <div style={{background:'var(--green-dim)', border:'0.5px solid rgba(62,207,142,0.2)', borderRadius:'10px', padding:'10px 14px', fontSize:'13px', color:'var(--green)', marginBottom:'14px'}}>{saveMsg}</div>}
-              <div style={{marginBottom:'10px'}}>
+            <div className="page-header"><div className="page-title">Platform Settings</div></div>
+            <div style={{ maxWidth: 420 }}>
+              {settingsMsg && <div className="success-msg">{settingsMsg}</div>}
+              <div className="form-group">
                 <span className="label">Full name</span>
-                <input className="input" value={newName} onChange={e => setNewName(e.target.value)} />
+                <input className="input" value={fullName} onChange={e => setFullName(e.target.value)} />
               </div>
-              <div style={{marginBottom:'10px'}}>
-                <span className="label">Email</span>
-                <input className="input" type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
+              <div className="form-group">
+                <span className="label">New password</span>
+                <input className="input" type="password" placeholder="Leave blank to keep current" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
               </div>
-              <div style={{marginBottom:'20px'}}>
-                <span className="label">New password (leave blank to keep current)</span>
-                <input className="input" type="password" placeholder="New password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
-              </div>
-              <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>
-                {saving ? 'Saving...' : 'Save changes →'}
+              <button className="btn btn-amber" onClick={saveSettings} disabled={settingsSaving} style={{ marginBottom: 12 }}>
+                {settingsSaving ? <Spinner size={18} /> : 'Save changes →'}
               </button>
-            </div>
-            <div className="card" style={{maxWidth:'440px'}}>
-              <div style={{fontFamily:'var(--font-head)', fontSize:'15px', fontWeight:'700', marginBottom:'4px'}}>Sign out</div>
-              <div style={{fontSize:'13px', color:'var(--text3)', marginBottom:'16px'}}>You'll be redirected to the login page</div>
-              <button className="btn btn-danger" style={{width:'100%'}} onClick={signOut}>Sign out</button>
+              <button className="btn btn-danger" onClick={signOut} style={{ width: '100%' }}>Sign out</button>
             </div>
           </>
         )}
-      </main>
+      </div>
 
-      <nav className="mobile-nav">
-        <div className="mobile-nav-inner">
-          {tabs.map(t => (
-            <div key={t} className={`mobile-nav-item ${tab === t ? 'active' : ''}`} onClick={() => { setTab(t); setSelectedTrainer(null); setSelectedClient(null); }}>
-              <div className="mobile-nav-dot" />{t.charAt(0).toUpperCase() + t.slice(1)}
+      {/* Create Account Modal */}
+      <Modal open={showCreateModal} onClose={() => { setShowCreateModal(false); setCreateSuccess(''); setCreateError('') }} title="Create Account">
+        {createSuccess ? (
+          <div>
+            <div className="success-msg">{createSuccess}</div>
+            <button className="btn btn-amber" onClick={() => { setShowCreateModal(false); setCreateSuccess('') }}>Done</button>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 6, background: 'var(--bg2)', borderRadius: 9, padding: 4, marginBottom: 16 }}>
+              {['trainer', 'client', 'admin'].map(r => (
+                <button key={r} onClick={() => setCreateRole(r)}
+                  style={{ flex: 1, padding: '6px 0', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, textTransform: 'capitalize', background: createRole === r ? 'var(--amber)' : 'transparent', color: createRole === r ? '#000' : 'var(--text3)', transition: 'all 0.15s' }}>
+                  {r}
+                </button>
+              ))}
             </div>
-          ))}
-        </div>
-      </nav>
+            {createError && <div className="error-msg">{createError}</div>}
+            <div className="form-group">
+              <span className="label">Full name</span>
+              <input className="input" placeholder="Full name" value={createName} onChange={e => setCreateName(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <span className="label">Email</span>
+              <input className="input" type="email" placeholder="email@example.com" value={createEmail} onChange={e => setCreateEmail(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <span className="label">Password</span>
+              <input className="input" type="password" placeholder="Password (min 6 chars)" value={createPassword} onChange={e => setCreatePassword(e.target.value)} />
+            </div>
+            {createRole === 'client' && (
+              <div className="form-group">
+                <span className="label">Assign trainer</span>
+                <select className="input" value={createTrainerId} onChange={e => setCreateTrainerId(e.target.value)}>
+                  <option value="">No trainer</option>
+                  {trainers.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+                </select>
+              </div>
+            )}
+            <button className="btn btn-amber" onClick={createAccount} disabled={creating}>
+              {creating ? <Spinner size={18} /> : 'Create Account →'}
+            </button>
+          </>
+        )}
+      </Modal>
+
+      {/* Document detail modal */}
+      <Modal open={showDocModal} onClose={() => setShowDocModal(false)} title="Document Details">
+        {selectedDoc && (
+          <div>
+            <div style={{ marginBottom: 12 }}>
+              <div className="section-title">Document</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>
+                {selectedDoc.document_type === 'liability_waiver' ? 'Liability Waiver' : 'Training Contract'}
+              </div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div className="section-title">Client</div>
+              <div style={{ fontSize: 14 }}>{selectedDoc.client?.full_name || '—'}</div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div className="section-title">Signed as</div>
+              <div style={{ fontSize: 16, fontStyle: 'italic', color: 'var(--amber)' }}>{selectedDoc.signed_as || '—'}</div>
+            </div>
+            <div>
+              <div className="section-title">Date</div>
+              <div style={{ fontSize: 13, color: 'var(--text2)' }}>
+                {new Date(selectedDoc.created_at).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Client detail modal */}
+      <Modal open={showClientModal} onClose={() => setShowClientModal(false)} title="Client Details">
+        {selectedClientProfile && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <Avatar name={selectedClientProfile.full_name} size="lg" />
+              <div>
+                <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 16, fontWeight: 800 }}>{selectedClientProfile.full_name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)' }}>{selectedClientProfile.email}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>
+              Trainer: {selectedClientProfile.clients?.[0]?.profiles?.full_name || 'Unassigned'}
+            </div>
+            <button className="btn btn-danger" onClick={() => { deleteAccount(selectedClientProfile.id); setShowClientModal(false) }} style={{ width: '100%' }}>
+              <IconTrash size={14} /> Delete Account
+            </button>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

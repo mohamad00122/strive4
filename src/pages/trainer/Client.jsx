@@ -1,282 +1,399 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/AuthContext'
+import Avatar from '../../components/Avatar'
+import Badge from '../../components/Badge'
+import ComplianceRing from '../../components/ComplianceRing'
+import Modal from '../../components/Modal'
+import Spinner from '../../components/Spinner'
+import { IconArrowLeft, IconPlus, IconTrash, IconGripVertical, IconVideo } from '@tabler/icons-react'
 
-const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+function getMondayISO() {
+  const now = new Date()
+  const dow = now.getDay()
+  const daysToMonday = dow === 0 ? 6 : dow - 1
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - daysToMonday)
+  monday.setHours(0, 0, 0, 0)
+  return monday.toISOString()
+}
 
 export default function TrainerClient() {
   const { clientId } = useParams()
-  const { profile, signOut } = useAuth()
-  const [client, setClient] = useState(null)
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const [loading, setLoading] = useState(true)
+
+  const [clientProfile, setClientProfile] = useState(null)
+  const [clientStatus, setClientStatus] = useState('active')
   const [plan, setPlan] = useState(null)
   const [days, setDays] = useState([])
+  const [activeDay, setActiveDay] = useState(DAYS[0])
   const [videos, setVideos] = useState([])
-  const [activeDay, setActiveDay] = useState('Monday')
-  const [showAddEx, setShowAddEx] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [exName, setExName] = useState('')
-  const [exSets, setExSets] = useState('')
-  const [exReps, setExReps] = useState('')
-  const [exRest, setExRest] = useState('')
-  const [exNotes, setExNotes] = useState('')
-  const [exVideo, setExVideo] = useState('')
-  const [adding, setAdding] = useState(false)
-  const [error, setError] = useState('')
-  const [intakeForm, setIntakeForm] = useState(null)
-  const [showIntake, setShowIntake] = useState(false)
+  const [sessionLogs, setSessionLogs] = useState([])
+  const [compliance28, setCompliance28] = useState(0)
 
-  useEffect(() => { init() }, [clientId])
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newSets, setNewSets] = useState('')
+  const [newReps, setNewReps] = useState('')
+  const [newRest, setNewRest] = useState('')
+  const [newNotes, setNewNotes] = useState('')
+  const [newVideoId, setNewVideoId] = useState('')
+  const [addingEx, setAddingEx] = useState(false)
 
-  const init = async () => {
-    const { data: clientData } = await supabase.from('profiles').select('*').eq('id', clientId).single()
-    setClient(clientData)
-    const { data: planData } = await supabase.from('workout_plans').select('*').eq('client_id', clientId).single()
-    let currentPlan = planData
-    if (!planData) {
-      const { data: newPlan } = await supabase.from('workout_plans').insert({ client_id: clientId, trainer_id: profile.id }).select().single()
-      currentPlan = newPlan
+  const [showCopyModal, setShowCopyModal] = useState(false)
+  const [copyTarget, setCopyTarget] = useState('')
+
+  const mondayISO = getMondayISO()
+
+  useEffect(() => { loadAll() }, [clientId])
+
+  const loadAll = async () => {
+    setLoading(true)
+    const [profileRes, clientRes, videosRes, sessionsRes, sessions28Res] = await Promise.all([
+      supabase.from('profiles').select('*').eq('id', clientId).single(),
+      supabase.from('clients').select('*').eq('trainer_id', user.id).eq('client_id', clientId).single(),
+      supabase.from('videos').select('*').eq('trainer_id', user.id),
+      supabase.from('session_logs').select('*').eq('client_id', clientId).gte('logged_at', mondayISO),
+      supabase.from('session_logs').select('*').eq('client_id', clientId).gte('logged_at', new Date(Date.now() - 28 * 86400000).toISOString()),
+    ])
+    setClientProfile(profileRes.data)
+    setClientStatus(clientRes.data?.status || 'active')
+    setVideos(videosRes.data || [])
+    setSessionLogs(sessionsRes.data || [])
+
+    let planData = null
+    const { data: plans } = await supabase.from('workout_plans').select('id').eq('client_id', clientId).order('created_at', { ascending: false }).limit(1)
+
+    if (plans?.length > 0) {
+      planData = plans[0]
+    } else {
+      const { data: newPlan } = await supabase.from('workout_plans').insert({
+        client_id: clientId, trainer_id: user.id, name: 'Training Plan'
+      }).select().single()
+      planData = newPlan
+      if (newPlan) {
+        for (const day of DAYS) {
+          await supabase.from('workout_days').insert({ plan_id: newPlan.id, day_of_week: day, is_rest_day: false })
+        }
+      }
     }
-    setPlan(currentPlan)
-    await fetchDays(currentPlan.id)
-    const { data: videoData } = await supabase.from('videos').select('*').eq('trainer_id', profile.id).order('title')
-    setVideos(videoData || [])
-    const { data: intake } = await supabase.from('intake_forms').select('*').eq('client_id', clientId).single()
-    setIntakeForm(intake)
+
+    if (planData) {
+      setPlan(planData)
+      await fetchDays(planData.id)
+    }
+
+    const nonRestDays = (await supabase.from('workout_days').select('*').eq('plan_id', planData?.id)).data?.filter(d => !d.is_rest_day).length || 1
+    const sessions28Count = sessions28Res.data?.length || 0
+    setCompliance28(Math.min(Math.round((sessions28Count / (nonRestDays * 4)) * 100), 100))
+
     setLoading(false)
   }
 
   const fetchDays = async (planId) => {
-    const { data } = await supabase.from('workout_days').select('*, exercises(*, video:video_id(*))').eq('plan_id', planId).order('created_at')
+    const { data } = await supabase
+      .from('workout_days')
+      .select('*, exercises(*, video:videos(id, title, video_url))')
+      .eq('plan_id', planId)
+      .order('created_at', { ascending: true })
     setDays(data || [])
   }
 
-  const toggleRestDay = async () => {
-    const day = days.find(d => d.day_of_week === activeDay)
-    if (day) {
-      await supabase.from('workout_days').update({ is_rest_day: !day.is_rest_day }).eq('id', day.id)
-    } else {
-      await supabase.from('workout_days').insert({ plan_id: plan.id, day_of_week: activeDay, is_rest_day: true })
-    }
-    fetchDays(plan.id)
+  const toggleRestDay = async (dayId, current) => {
+    await supabase.from('workout_days').update({ is_rest_day: !current }).eq('id', dayId)
+    setDays(prev => prev.map(d => d.id === dayId ? { ...d, is_rest_day: !current } : d))
   }
 
-  const addExercise = async () => {
-    if (!exName) return setError('Exercise name is required.')
-    setAdding(true)
-    setError('')
-    let day = days.find(d => d.day_of_week === activeDay)
-    if (!day) {
-      const { data } = await supabase.from('workout_days').insert({ plan_id: plan.id, day_of_week: activeDay, is_rest_day: false }).select().single()
-      day = data
-    } else if (day.is_rest_day) {
-      await supabase.from('workout_days').update({ is_rest_day: false }).eq('id', day.id)
-    }
-    const currentExercises = day.exercises || []
-    await supabase.from('exercises').insert({
-      day_id: day.id, name: exName, sets: exSets ? parseInt(exSets) : null,
-      reps: exReps, rest_time: exRest, notes: exNotes,
-      video_id: exVideo || null, order_index: currentExercises.length
-    })
-    setExName(''); setExSets(''); setExReps(''); setExRest(''); setExNotes(''); setExVideo(''); setShowAddEx(false)
-    fetchDays(plan.id)
-    setAdding(false)
+  const updateExercise = async (exId, field, value) => {
+    await supabase.from('exercises').update({ [field]: value }).eq('id', exId)
+    setDays(prev => prev.map(d => ({
+      ...d,
+      exercises: (d.exercises || []).map(e => e.id === exId ? { ...e, [field]: value } : e)
+    })))
   }
 
   const deleteExercise = async (exId) => {
     await supabase.from('exercises').delete().eq('id', exId)
-    fetchDays(plan.id)
+    setDays(prev => prev.map(d => ({
+      ...d,
+      exercises: (d.exercises || []).filter(e => e.id !== exId)
+    })))
   }
 
-  const activeDay_ = days.find(d => d.day_of_week === activeDay)
-  const exercises = activeDay_?.exercises || []
-  const isRest = activeDay_?.is_rest_day
-  const initials = (name) => name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2) || '??'
+  const addExercise = async () => {
+    if (!newName.trim()) return
+    setAddingEx(true)
+    const activeDayData = days.find(d => d.day_of_week === activeDay)
+    if (!activeDayData) { setAddingEx(false); return }
 
-  if (loading) return <div className="loading"><div className="spinner" /></div>
+    const existingExercises = activeDayData.exercises || []
+    const orderIndex = existingExercises.length
+
+    const insertData = {
+      day_id: activeDayData.id,
+      name: newName.trim(),
+      sets: newSets ? parseInt(newSets) : null,
+      reps: newReps || null,
+      rest_time: newRest ? parseInt(newRest) : null,
+      notes: newNotes || null,
+      video_id: newVideoId || null,
+      order_index: orderIndex,
+    }
+
+    const { data: newEx } = await supabase.from('exercises').insert(insertData).select('*, video:videos(id, title, video_url)').single()
+
+    if (newEx) {
+      setDays(prev => prev.map(d => d.id === activeDayData.id ? {
+        ...d,
+        exercises: [...(d.exercises || []), newEx]
+      } : d))
+    }
+
+    setNewName(''); setNewSets(''); setNewReps(''); setNewRest(''); setNewNotes(''); setNewVideoId('')
+    setShowAddForm(false)
+    setAddingEx(false)
+  }
+
+  const copyDayExercises = async () => {
+    if (!copyTarget) return
+    const sourceDayData = days.find(d => d.day_of_week === activeDay)
+    const targetDayData = days.find(d => d.day_of_week === copyTarget)
+    if (!sourceDayData || !targetDayData) return
+
+    const exercises = (sourceDayData.exercises || []).sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+    for (let i = 0; i < exercises.length; i++) {
+      const ex = exercises[i]
+      await supabase.from('exercises').insert({
+        day_id: targetDayData.id,
+        name: ex.name,
+        sets: ex.sets,
+        reps: ex.reps,
+        rest_time: ex.rest_time,
+        notes: ex.notes,
+        video_id: ex.video_id,
+        order_index: i,
+      })
+    }
+    await fetchDays(plan.id)
+    setShowCopyModal(false)
+    setCopyTarget('')
+  }
+
+  const weekDayLogs = sessionLogs.map(l => l.day_of_week)
+
+  const activeDayData = days.find(d => d.day_of_week === activeDay)
+  const exercises = (activeDayData?.exercises || []).sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+
+  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}><Spinner size={36} /></div>
 
   return (
-    <div className="app-layout">
-      <div className="sidebar">
-        <div className="sidebar-logo">Strive<span>.</span></div>
-        <nav className="sidebar-nav">
-          <Link to="/trainer" className="nav-item active"><div className="nav-dot" />My Clients</Link>
-          <Link to="/trainer/videos" className="nav-item"><div className="nav-dot" />Video Library</Link>
-          <Link to="/trainer?tab=settings" className="nav-item"><div className="nav-dot" />Settings</Link>
-        </nav>
-        <div className="sidebar-footer">
-          <div className="avatar">{initials(profile?.full_name)}</div>
-          <div className="sidebar-footer-name">{profile?.full_name}</div>
-          <button className="signout-btn" onClick={signOut}>Sign out</button>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+      {/* Header */}
+      <div style={{ background: 'var(--bg1)', borderBottom: '1px solid var(--border)', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 14, position: 'sticky', top: 0, zIndex: 100 }}>
+        <button onClick={() => navigate('/trainer')} style={{ background: 'none', border: 'none', color: 'var(--text2)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+          <IconArrowLeft size={16} /> Back
+        </button>
+        <Avatar name={clientProfile?.full_name} size="md" />
+        <div>
+          <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 15, fontWeight: 800 }}>{clientProfile?.full_name || 'Client'}</div>
+          <div style={{ fontSize: 10, color: 'var(--text3)' }}>Plan Builder</div>
         </div>
+        <Badge variant={clientStatus === 'inactive' ? 'red' : 'green'} style={{ marginLeft: 4 }}>{clientStatus}</Badge>
       </div>
 
-      <div className="mobile-header">
-        <Link to="/trainer" style={{color:'var(--accent)', textDecoration:'none', fontFamily:'var(--font-head)', fontSize:'13px'}}>← Back</Link>
-        <div className="mobile-logo">Strive<span>.</span></div>
-        <div className="avatar">{initials(profile?.full_name)}</div>
-      </div>
-
-      <main className="main-content">
-        <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'4px'}}>
-          <div className="avatar" style={{width:'44px', height:'44px', fontSize:'15px'}}>{initials(client?.full_name)}</div>
-          <div>
-            <div className="page-title" style={{marginBottom:'0'}}>{client?.full_name}</div>
-            <div style={{fontSize:'12px', color:'var(--text3)'}}>{client?.email}</div>
-          </div>
-        </div>
-        <div className="page-sub" style={{marginTop:'8px'}}>Workout plan builder</div>
-
-        {intakeForm && (
-          <div style={{marginBottom:'20px'}}>
-            <div className="add-btn" style={{marginBottom:'0'}} onClick={() => setShowIntake(!showIntake)}>
-              {showIntake ? '✕ Hide health form' : '📋 View health & goals form'}
-            </div>
-            {showIntake && (
-              <div className="card" style={{marginTop:'10px'}}>
-                <div style={{fontFamily:'var(--font-head)', fontSize:'14px', fontWeight:'700', marginBottom:'14px'}}>Client Health Form</div>
-                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px', marginBottom:'14px'}}>
-                  {[['Age', intakeForm.age], ['Weight', intakeForm.weight], ['Height', intakeForm.height]].map(([label, val]) => (
-                    <div key={label} style={{background:'var(--surface3)', borderRadius:'10px', padding:'10px', textAlign:'center'}}>
-                      <div style={{fontFamily:'var(--font-head)', fontSize:'16px', fontWeight:'700', color:'var(--accent)'}}>{val || '—'}</div>
-                      <div style={{fontSize:'10px', color:'var(--text3)', marginTop:'2px', textTransform:'uppercase', letterSpacing:'0.5px'}}>{label}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{marginBottom:'14px'}}>
-                  <span className="label">Fitness goal</span>
-                  <div style={{fontSize:'14px', color:'var(--accent)', fontFamily:'var(--font-head)', fontWeight:'600'}}>{intakeForm.fitness_goal || '—'}</div>
-                </div>
-                <div style={{fontFamily:'var(--font-head)', fontSize:'11px', fontWeight:'700', color:'var(--text3)', textTransform:'uppercase', letterSpacing:'1px', marginBottom:'10px'}}>PAR-Q Answers</div>
-                {[
-                  ['Heart condition', intakeForm.heart_condition],
-                  ['Chest pain during activity', intakeForm.chest_pain_activity],
-                  ['Chest pain at rest', intakeForm.chest_pain_rest],
-                  ['Dizziness / loss of consciousness', intakeForm.dizziness],
-                  ['Bone or joint problem', intakeForm.bone_joint_problem],
-                  ['Prescription medication', intakeForm.prescription_medication],
-                  ['Other reason', intakeForm.other_reason],
-                ].map(([label, val]) => (
-                  <div key={label} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:'0.5px solid var(--border)'}}>
-                    <div style={{fontSize:'12px', color:'var(--text2)'}}>{label}</div>
-                    <div style={{fontSize:'11px', fontFamily:'var(--font-head)', fontWeight:'600', padding:'3px 10px', borderRadius:'8px',
-                      background: val ? 'var(--red-dim)' : 'var(--green-dim)',
-                      color: val ? 'var(--red)' : 'var(--green)'}}>
-                      {val ? 'YES' : 'NO'}
-                    </div>
-                  </div>
-                ))}
-                {intakeForm.other_reason_details && (
-                  <div style={{marginTop:'10px', fontSize:'12px', color:'var(--text2)'}}>
-                    <span style={{color:'var(--text3)'}}>Details: </span>{intakeForm.other_reason_details}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div style={{display:'flex', gap:'6px', flexWrap:'wrap', marginBottom:'20px'}}>
-          {DAYS.map(d => {
-            const dayData = days.find(day => day.day_of_week === d)
-            const isRestDay = dayData?.is_rest_day
+      {/* Main layout */}
+      <div style={{ display: 'flex', gap: 0, maxWidth: 1100, margin: '0 auto' }}>
+        {/* Day sidebar */}
+        <div style={{ width: 220, flexShrink: 0, padding: 16, borderRight: '1px solid var(--border)', minHeight: 'calc(100vh - 60px)' }}>
+          <div className="section-title" style={{ marginBottom: 8 }}>Days</div>
+          {days.map(d => {
+            const isActive = activeDay === d.day_of_week
+            const exCount = (d.exercises || []).length
+            const logged = weekDayLogs.includes(d.day_of_week)
             return (
-              <div key={d} onClick={() => setActiveDay(d)}
-                style={{padding:'7px 14px', borderRadius:'20px', fontSize:'12px', cursor:'pointer', fontFamily:'var(--font-head)', fontWeight:'700',
-                  background: activeDay === d ? 'var(--accent)' : isRestDay ? 'var(--surface3)' : 'var(--accent-dim)',
-                  color: activeDay === d ? '#fff' : isRestDay ? 'var(--text3)' : 'var(--accent)',
-                  border: `0.5px solid ${activeDay === d ? 'var(--accent)' : 'var(--border2)'}`,
-                  transition:'all 0.2s'}}>
-                {d.slice(0,3)}
+              <div key={d.id} className={`plan-day-item ${isActive ? 'active' : ''}`} onClick={() => setActiveDay(d.day_of_week)}>
+                <div className="plan-day-name">{d.day_of_week.slice(0, 3)}</div>
+                <div className="plan-day-sub">
+                  {d.is_rest_day ? <span style={{ fontStyle: 'italic', color: 'var(--text3)' }}>Rest</span>
+                    : logged ? <span style={{ color: 'var(--green)' }}>● logged</span>
+                    : `${exCount} exercise${exCount !== 1 ? 's' : ''}`}
+                </div>
               </div>
             )
           })}
-        </div>
 
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'14px'}}>
-          <div style={{fontFamily:'var(--font-head)', fontSize:'16px', fontWeight:'700'}}>{activeDay}</div>
-          <button className="btn btn-secondary btn-sm" onClick={toggleRestDay}>
-            {isRest ? '✓ Rest day — click to undo' : 'Mark as rest day'}
-          </button>
-        </div>
-
-        {isRest ? (
-          <div className="card" style={{textAlign:'center', padding:'32px'}}>
-            <div style={{fontSize:'28px', marginBottom:'10px'}}>😴</div>
-            <div style={{fontFamily:'var(--font-head)', fontSize:'15px', fontWeight:'600'}}>Rest day</div>
+          {/* Mini compliance widget */}
+          <div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16, textAlign: 'center' }}>
+            <ComplianceRing percent={compliance28} size={64} strokeWidth={6} />
+            <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 6 }}>28-day compliance</div>
           </div>
-        ) : (
-          <>
-            <div className="add-btn" onClick={() => setShowAddEx(!showAddEx)}>
-              {showAddEx ? '✕ Cancel' : '+ Add exercise'}
-            </div>
-
-            {showAddEx && (
-              <div className="card" style={{marginBottom:'14px'}}>
-                <div style={{fontFamily:'var(--font-head)', fontSize:'15px', fontWeight:'700', marginBottom:'16px'}}>New exercise</div>
-                {error && <div className="error-msg">{error}</div>}
-                <div style={{display:'grid', gap:'10px', marginBottom:'10px'}}>
-                  <input className="input" placeholder="Exercise name *" value={exName} onChange={e => setExName(e.target.value)} />
-                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px'}}>
-                    <input className="input" placeholder="Sets" value={exSets} onChange={e => setExSets(e.target.value)} />
-                    <input className="input" placeholder="Reps" value={exReps} onChange={e => setExReps(e.target.value)} />
-                    <input className="input" placeholder="Rest" value={exRest} onChange={e => setExRest(e.target.value)} />
-                  </div>
-                  <input className="input" placeholder="Coaching notes..." value={exNotes} onChange={e => setExNotes(e.target.value)} />
-                  <select className="input" value={exVideo} onChange={e => setExVideo(e.target.value)}>
-                    <option value="">No video selected</option>
-                    {videos.map(v => <option key={v.id} value={v.id}>{v.title} ({v.category})</option>)}
-                  </select>
-                </div>
-                <button className="btn btn-primary" onClick={addExercise} disabled={adding}>
-                  {adding ? 'Adding...' : 'Add exercise →'}
-                </button>
-              </div>
-            )}
-
-            {exercises.length === 0 ? (
-              <div className="card" style={{textAlign:'center', padding:'32px'}}>
-                <div style={{fontSize:'28px', marginBottom:'10px'}}>📋</div>
-                <div style={{fontFamily:'var(--font-head)', fontSize:'15px', fontWeight:'600', marginBottom:'6px'}}>No exercises yet</div>
-                <div style={{fontSize:'13px', color:'var(--text3)'}}>Add exercises for {activeDay}</div>
-              </div>
-            ) : exercises.map((ex) => (
-              <div key={ex.id} className="card" style={{marginBottom:'9px'}}>
-                <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
-                  <div style={{flex:1}}>
-                    <div style={{fontFamily:'var(--font-head)', fontSize:'15px', fontWeight:'600', marginBottom:'4px'}}>{ex.name}</div>
-                    <div style={{fontSize:'12px', color:'var(--text3)'}}>
-                      {[ex.sets && `${ex.sets} sets`, ex.reps && `${ex.reps} reps`, ex.rest_time && `${ex.rest_time} rest`].filter(Boolean).join(' · ')}
-                    </div>
-                  </div>
-                  <button className="btn btn-danger btn-sm" onClick={() => deleteExercise(ex.id)}>Delete</button>
-                </div>
-                {ex.notes && <div style={{fontSize:'12px', color:'var(--text2)', marginTop:'8px', paddingTop:'8px', borderTop:'0.5px solid var(--border)'}}>{ex.notes}</div>}
-                {ex.video && (
-                  <div style={{marginTop:'10px', paddingTop:'10px', borderTop:'0.5px solid var(--border)'}}>
-                    <div style={{fontSize:'11px', color:'var(--accent)', marginBottom:'6px', fontFamily:'var(--font-head)', fontWeight:'600'}}>🎬 {ex.video.title}</div>
-                    <video src={ex.video.video_url} controls style={{width:'100%', borderRadius:'10px', background:'#000'}} />
-                  </div>
-                )}
-              </div>
-            ))}
-          </>
-        )}
-      </main>
-
-      <nav className="mobile-nav">
-        <div className="mobile-nav-inner">
-          <Link to="/trainer" className="mobile-nav-item active">
-            <div className="mobile-nav-dot" />Clients
-          </Link>
-          <Link to="/trainer/videos" className="mobile-nav-item">
-            <div className="mobile-nav-dot" />Videos
-          </Link>
-          <Link to="/trainer?tab=settings" className="mobile-nav-item">
-            <div className="mobile-nav-dot" />Settings
-          </Link>
         </div>
-      </nav>
+
+        {/* Exercise editor */}
+        <div style={{ flex: 1, padding: 20 }}>
+          {activeDayData && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 17, fontWeight: 800 }}>{activeDay}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)' }}>{activeDayData.is_rest_day ? 'Rest day' : `${exercises.length} exercises`}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => toggleRestDay(activeDayData.id, activeDayData.is_rest_day)}>
+                    {activeDayData.is_rest_day ? 'Mark as training' : 'Mark as rest'}
+                  </button>
+                  {!activeDayData.is_rest_day && exercises.length > 0 && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => setShowCopyModal(true)}>Copy to…</button>
+                  )}
+                </div>
+              </div>
+
+              {activeDayData.is_rest_day ? (
+                <div className="card" style={{ textAlign: 'center', padding: 40 }}>
+                  <div style={{ fontSize: 32, marginBottom: 10 }}>😴</div>
+                  <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 15, fontWeight: 700 }}>Rest Day</div>
+                </div>
+              ) : (
+                <>
+                  {exercises.map((ex) => (
+                    <ExerciseCard key={ex.id} ex={ex} videos={videos} onUpdate={updateExercise} onDelete={deleteExercise} />
+                  ))}
+
+                  {showAddForm ? (
+                    <div className="card" style={{ marginBottom: 12 }}>
+                      <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 13, fontWeight: 700, marginBottom: 12 }}>New Exercise</div>
+                      <div className="form-group">
+                        <span className="label">Exercise name</span>
+                        <input className="input" placeholder="e.g. Bench Press" value={newName} onChange={e => setNewName(e.target.value)} />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+                        <div>
+                          <span className="label">Sets</span>
+                          <input className="input" type="number" placeholder="4" value={newSets} onChange={e => setNewSets(e.target.value)} />
+                        </div>
+                        <div>
+                          <span className="label">Reps</span>
+                          <input className="input" type="text" placeholder="8-12" value={newReps} onChange={e => setNewReps(e.target.value)} />
+                        </div>
+                        <div>
+                          <span className="label">Rest (sec)</span>
+                          <input className="input" type="number" placeholder="90" value={newRest} onChange={e => setNewRest(e.target.value)} />
+                        </div>
+                      </div>
+                      <div className="form-group">
+                        <span className="label">Notes</span>
+                        <textarea className="input" placeholder="Coaching cues..." value={newNotes} onChange={e => setNewNotes(e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <span className="label">Video (optional)</span>
+                        <select className="input" value={newVideoId} onChange={e => setNewVideoId(e.target.value)}>
+                          <option value="">No video</option>
+                          {videos.map(v => <option key={v.id} value={v.id}>{v.title}</option>)}
+                        </select>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button className="btn btn-amber" onClick={addExercise} disabled={addingEx || !newName.trim()} style={{ flex: 1 }}>
+                          {addingEx ? <Spinner size={16} /> : 'Add exercise'}
+                        </button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setShowAddForm(false)}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button className="btn btn-ghost" onClick={() => setShowAddForm(true)} style={{ width: '100%', border: '1px dashed var(--border2)', marginTop: 4 }}>
+                      <IconPlus size={14} /> Add exercise
+                    </button>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Copy modal */}
+      <Modal open={showCopyModal} onClose={() => setShowCopyModal(false)} title="Copy exercises to…">
+        <div style={{ marginBottom: 16 }}>
+          {DAYS.filter(d => d !== activeDay).map(d => (
+            <div key={d} onClick={() => setCopyTarget(d)}
+              style={{ padding: '10px 14px', borderRadius: 9, cursor: 'pointer', marginBottom: 4,
+                background: copyTarget === d ? 'var(--amber-dim)' : 'var(--bg2)',
+                border: `1px solid ${copyTarget === d ? 'rgba(245,158,11,0.3)' : 'var(--border)'}`,
+                color: copyTarget === d ? 'var(--amber)' : 'var(--text2)', fontSize: 13, fontWeight: 500 }}>
+              {d}
+            </div>
+          ))}
+        </div>
+        <button className="btn btn-amber" onClick={copyDayExercises} disabled={!copyTarget}>Copy →</button>
+      </Modal>
+    </div>
+  )
+}
+
+function ExerciseCard({ ex, videos, onUpdate, onDelete }) {
+  const [name, setName] = useState(ex.name || '')
+  const [sets, setSets] = useState(ex.sets || '')
+  const [reps, setReps] = useState(ex.reps || '')
+  const [rest, setRest] = useState(ex.rest_time || '')
+  const [notes, setNotes] = useState(ex.notes || '')
+  const [videoId, setVideoId] = useState(ex.video_id || '')
+
+  const selectedVideo = videos.find(v => v.id === videoId)
+
+  return (
+    <div className="exercise-card" style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <IconGripVertical size={16} color="var(--text3)" style={{ flexShrink: 0, cursor: 'grab' }} />
+        <input
+          className="input"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          onBlur={() => onUpdate(ex.id, 'name', name)}
+          style={{ flex: 1, fontWeight: 600 }}
+          placeholder="Exercise name"
+        />
+        <button onClick={() => onDelete(ex.id)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4, flexShrink: 0 }}>
+          <IconTrash size={14} />
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+        <div>
+          <span className="label">Sets</span>
+          <input className="input" type="number" placeholder="4" value={sets} onChange={e => setSets(e.target.value)} onBlur={() => onUpdate(ex.id, 'sets', sets ? parseInt(sets) : null)} />
+        </div>
+        <div>
+          <span className="label">Reps</span>
+          <input className="input" type="text" placeholder="8-12" value={reps} onChange={e => setReps(e.target.value)} onBlur={() => onUpdate(ex.id, 'reps', reps || null)} />
+        </div>
+        <div>
+          <span className="label">Rest (sec)</span>
+          <input className="input" type="number" placeholder="90" value={rest} onChange={e => setRest(e.target.value)} onBlur={() => onUpdate(ex.id, 'rest_time', rest ? parseInt(rest) : null)} />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <span className="label">Coach notes</span>
+        <textarea className="input" placeholder="Coaching cues for client..." value={notes} onChange={e => setNotes(e.target.value)} onBlur={() => onUpdate(ex.id, 'notes', notes || null)} style={{ minHeight: 56 }} />
+      </div>
+
+      <div>
+        <span className="label">Video</span>
+        <select className="input" value={videoId} onChange={e => { setVideoId(e.target.value); onUpdate(ex.id, 'video_id', e.target.value || null) }}>
+          <option value="">No video</option>
+          {videos.map(v => <option key={v.id} value={v.id}>{v.title}</option>)}
+        </select>
+        {selectedVideo && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, padding: '6px 10px', background: 'var(--bg3)', borderRadius: 7 }}>
+            <IconVideo size={14} color="var(--amber)" />
+            <span style={{ fontSize: 12, color: 'var(--amber-text)' }}>{selectedVideo.title}</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

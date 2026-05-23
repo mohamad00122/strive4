@@ -1,11 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { useAuth } from '../../lib/AuthContext'
 
 export default function Login() {
   const navigate = useNavigate()
-  const { profile } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -27,16 +25,20 @@ export default function Login() {
         <div className="auth-tagline">Welcome back</div>
         {error && <div className="error-msg">{error}</div>}
         <div className="form-group">
-          <input className="input" type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} />
+          <span className="label">Email</span>
+          <input className="input" type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} />
         </div>
-        <div className="form-group" style={{marginBottom: '20px'}}>
+        <div className="form-group" style={{ marginBottom: 20 }}>
+          <span className="label">Password</span>
           <input className="input" type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleLogin()} />
         </div>
-        <button className="btn btn-primary" onClick={handleLogin} disabled={loading}>
+        <button className="btn btn-amber" onClick={handleLogin} disabled={loading}>
           {loading ? 'Logging in...' : 'Log In →'}
         </button>
-        <div className="auth-link">Don't have an account? <Link to="/signup">Sign up</Link></div>
+        <div className="auth-link" style={{ marginTop: 16 }}>
+          Don't have an account? <Link to="/signup">Sign up</Link>
+        </div>
       </div>
     </div>
   )

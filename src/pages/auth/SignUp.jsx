@@ -42,23 +42,25 @@ export default function SignUp() {
         {error && <div className="error-msg">{error}</div>}
         <div className="form-group">
           <span className="label">Full name</span>
-          <input className="input" placeholder="Full name" value={fullName} onChange={e => setFullName(e.target.value)} />
+          <input className="input" placeholder="Your full name" value={fullName} onChange={e => setFullName(e.target.value)} />
         </div>
         <div className="form-group">
           <span className="label">Email</span>
-          <input className="input" type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} />
+          <input className="input" type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} />
         </div>
-        <div className="form-group" style={{marginBottom:'20px'}}>
+        <div className="form-group" style={{ marginBottom: 20 }}>
           <span className="label">Password</span>
-          <input className="input" type="password" placeholder="Create password" value={password} onChange={e => setPassword(e.target.value)}
+          <input className="input" type="password" placeholder="Create a password (min 6 chars)" value={password} onChange={e => setPassword(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSignUp()} />
         </div>
-        <button className="btn btn-primary" onClick={handleSignUp} disabled={loading}>
+        <button className="btn btn-amber" onClick={handleSignUp} disabled={loading}>
           {loading ? 'Creating account...' : 'Create Trainer Account →'}
         </button>
-        <div className="auth-link">Already have an account? <Link to="/login">Log in</Link></div>
-        <div style={{marginTop:'16px', padding:'12px', background:'var(--surface3)', borderRadius:'10px', fontSize:'12px', color:'var(--text3)', textAlign:'center', lineHeight:'1.5'}}>
-          Are you a client? Ask your trainer to create your account — they'll send you your login details.
+        <div className="auth-link" style={{ marginTop: 16 }}>
+          Already have an account? <Link to="/login">Log in</Link>
+        </div>
+        <div style={{ marginTop: 14, padding: 12, background: 'var(--bg2)', borderRadius: 9, fontSize: 11, color: 'var(--text3)', textAlign: 'center', lineHeight: 1.6 }}>
+          Are you a client? Ask your trainer to create your account.
         </div>
       </div>
     </div>
