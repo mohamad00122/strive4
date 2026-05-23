@@ -192,6 +192,11 @@ export default function TrainerDashboard() {
           trainer_id: user.id,
         })
       })
+      if (res.status === 404) {
+        setNewClientError('Edge functions not deployed — run: supabase functions deploy create-client')
+        setNewClientCreating(false)
+        return
+      }
       const data = await res.json()
       if (data.error) { setNewClientError(data.error); setNewClientCreating(false); return }
       setNewClientSuccess(`Client created: ${newClientEmail}`)
@@ -222,7 +227,7 @@ export default function TrainerDashboard() {
   return (
     <div className="app-layout">
       <aside className="sidebar">
-        <div className="sidebar-logo">S<span>.</span></div>
+        <div className="sidebar-logo">Strive<span>.</span></div>
         <nav className="sidebar-nav">
           {TABS.map(t => (
             <div key={t.id} className={`sidebar-nav-item ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>

@@ -55,13 +55,13 @@ export default function AdminDashboard() {
 
   const loadAll = async () => {
     setLoading(true)
-    const [trainersRes, clientsRes, docsRes, activityRes] = await Promise.all([
-      supabase.from('profiles').select('*, clients!clients_trainer_id_fkey(client_id)').eq('role', 'trainer'),
+    const { data: trainersData } = await supabase.from('profiles').select('*').eq('role', 'trainer')
+    const [clientsRes, docsRes, activityRes] = await Promise.all([
       supabase.from('profiles').select('*, clients!clients_client_id_fkey(trainer_id, status, profiles!clients_trainer_id_fkey(full_name))').eq('role', 'client'),
       supabase.from('signed_documents').select('*, client:profiles!signed_documents_client_id_fkey(full_name), trainer:clients!signed_documents_client_id_fkey(profiles!clients_trainer_id_fkey(full_name))').order('created_at', { ascending: false }),
       supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(20),
     ])
-    setTrainers(trainersRes.data || [])
+    setTrainers(trainersData || [])
     setClients(clientsRes.data || [])
     setDocuments(docsRes.data || [])
     setActivityLog(activityRes.data || [])
@@ -209,7 +209,7 @@ export default function AdminDashboard() {
                 <Avatar name={t.full_name} size="sm" />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{t.full_name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{(t.clients || []).length} clients</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{clients.filter(c => c.clients?.[0]?.trainer_id === t.id).length} clients</div>
                 </div>
                 <div style={{ width: 80 }}>
                   <div className="compliance-bar">
@@ -289,7 +289,7 @@ export default function AdminDashboard() {
                   <Avatar name={t.full_name} size="md" />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{t.full_name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{t.email} · {(t.clients || []).length} clients</div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{t.email} · {clients.filter(c => c.clients?.[0]?.trainer_id === t.id).length} clients</div>
                   </div>
                   <button onClick={(e) => { e.stopPropagation(); deleteAccount(t.id) }} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4 }}>
                     <IconTrash size={14} />

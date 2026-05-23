@@ -7,7 +7,7 @@ export default function Sidebar({ tabs, activeTab, onTabChange }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        S<span>.</span>
+        Strive<span>.</span>
       </div>
       <nav className="sidebar-nav">
         {tabs.map(tab => (
