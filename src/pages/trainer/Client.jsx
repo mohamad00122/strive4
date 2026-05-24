@@ -102,6 +102,8 @@ export default function TrainerClient() {
       .eq('plan_id', planId)
       .order('created_at', { ascending: true })
     setDays(data || [])
+    setActiveDay(data?.[0]?.day_of_week || DAYS[0])
+    console.log('days loaded:', data)
   }
 
   const toggleRestDay = async (dayId, current) => {

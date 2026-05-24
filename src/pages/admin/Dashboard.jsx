@@ -25,6 +25,7 @@ export default function AdminDashboard() {
   const [clients, setClients] = useState([])
   const [documents, setDocuments] = useState([])
   const [activityLog, setActivityLog] = useState([])
+  const [clientRelationships, setClientRelationships] = useState([])
 
   const [clientSearch, setClientSearch] = useState('')
   const [clientFilter, setClientFilter] = useState('All')
@@ -57,6 +58,8 @@ export default function AdminDashboard() {
     setLoading(true)
     const { data: trainersData } = await supabase.from('profiles').select('*').eq('role', 'trainer')
     const { data: clientsData } = await supabase.from('profiles').select('*').eq('role', 'client')
+    const { data: relData } = await supabase.from('clients').select('trainer_id, client_id')
+    setClientRelationships(relData || [])
     const [docsRes, activityRes] = await Promise.all([
       supabase.from('signed_documents').select('*, client:profiles!signed_documents_client_id_fkey(full_name), trainer:clients!signed_documents_client_id_fkey(profiles!clients_trainer_id_fkey(full_name))').order('created_at', { ascending: false }),
       supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(20),
@@ -209,7 +212,7 @@ export default function AdminDashboard() {
                 <Avatar name={t.full_name} size="sm" />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{t.full_name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{clients.filter(c => c.clients?.[0]?.trainer_id === t.id).length} clients</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{clientRelationships.filter(r => r.trainer_id === t.id).length} clients</div>
                 </div>
                 <div style={{ width: 80 }}>
                   <div className="compliance-bar">
@@ -289,7 +292,7 @@ export default function AdminDashboard() {
                   <Avatar name={t.full_name} size="md" />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{t.full_name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{t.email} · {clients.filter(c => c.clients?.[0]?.trainer_id === t.id).length} clients</div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{t.email} · {clientRelationships.filter(r => r.trainer_id === t.id).length} clients</div>
                   </div>
                   <button onClick={(e) => { e.stopPropagation(); deleteAccount(t.id) }} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4 }}>
                     <IconTrash size={14} />
@@ -299,13 +302,16 @@ export default function AdminDashboard() {
                 {trainerExpanded[t.id] && (
                   <div style={{ background: 'var(--bg2)', border: '1px solid rgba(245,158,11,0.3)', borderTop: 'none', borderRadius: '0 0 10px 10px', padding: 14, marginBottom: 6 }}>
                     <div className="section-title" style={{ marginBottom: 8 }}>Clients</div>
-                    {clients.filter(c => c.clients?.[0]?.trainer_id === t.id).map(c => (
-                      <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <Avatar name={c.full_name} size="sm" />
-                        <span style={{ fontSize: 12, color: 'var(--text2)' }}>{c.full_name}</span>
-                      </div>
-                    ))}
-                    {clients.filter(c => c.clients?.[0]?.trainer_id === t.id).length === 0 && (
+                    {clientRelationships.filter(r => r.trainer_id === t.id).map(r => {
+                      const c = clients.find(cl => cl.id === r.client_id)
+                      return c ? (
+                        <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          <Avatar name={c.full_name} size="sm" />
+                          <span style={{ fontSize: 12, color: 'var(--text2)' }}>{c.full_name}</span>
+                        </div>
+                      ) : null
+                    })}
+                    {clientRelationships.filter(r => r.trainer_id === t.id).length === 0 && (
                       <div style={{ fontSize: 12, color: 'var(--text3)' }}>No clients assigned yet.</div>
                     )}
                   </div>

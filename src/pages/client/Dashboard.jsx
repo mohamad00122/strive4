@@ -127,8 +127,8 @@ export default function ClientDashboard() {
       supabase.from('session_logs').select('*').eq('client_id', user.id).gte('logged_at', mondayISO),
       supabase.from('weight_logs').select('*').eq('client_id', user.id).order('logged_at', { ascending: true }),
       supabase.from('performance_logs').select('*').eq('client_id', user.id).order('logged_at', { ascending: false }),
-      supabase.from('intake_forms').select('*').eq('client_id', user.id).single(),
-      supabase.from('clients').select('*, profiles!clients_trainer_id_fkey(full_name, id)').eq('client_id', user.id).single(),
+      supabase.from('intake_forms').select('*').eq('client_id', user.id).maybeSingle(),
+      supabase.from('clients').select('*, profiles!clients_trainer_id_fkey(full_name, id)').eq('client_id', user.id).maybeSingle(),
     ])
 
     const planId = planRes.data?.[0]?.id
@@ -151,8 +151,8 @@ export default function ClientDashboard() {
     setPerformanceLogs(perfRes.data || [])
     setIntakeForm(intakeRes.data || null)
 
-    if (clientRes.data) {
-      setTrainerInfo(clientRes.data.profiles)
+    if (!clientRes.error && clientRes.data) {
+      setTrainerInfo(clientRes.data.profiles || null)
       const trainerId = clientRes.data.trainer_id
       const { data: msgData } = await supabase
         .from('messages')
@@ -277,7 +277,7 @@ export default function ClientDashboard() {
     <div className="app-layout">
       {/* Sidebar (desktop) */}
       <aside className="sidebar">
-        <div className="sidebar-logo">S<span>.</span></div>
+        <div className="sidebar-logo">Strive<span>.</span></div>
         <nav className="sidebar-nav">
           {TABS.map(t => (
             <div key={t.id} className={`sidebar-nav-item ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
