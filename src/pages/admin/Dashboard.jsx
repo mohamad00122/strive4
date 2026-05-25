@@ -44,8 +44,7 @@ export default function AdminDashboard() {
   const [showDocModal, setShowDocModal] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState(null)
 
-  const [showClientModal, setShowClientModal] = useState(false)
-  const [selectedClientProfile, setSelectedClientProfile] = useState(null)
+  const [clientExpanded, setClientExpanded] = useState({})
 
   const [fullName, setFullName] = useState(profile?.full_name || '')
   const [newPassword, setNewPassword] = useState('')
@@ -348,20 +347,34 @@ export default function AdminDashboard() {
             </div>
 
             {filteredClients.map(c => (
-              <div key={c.id} onClick={() => { setSelectedClientProfile(c); setShowClientModal(true) }}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer', marginBottom: 6,
-                  background: 'var(--bg1)', border: '1px solid var(--border)', borderRadius: 10, transition: 'all 0.15s' }}>
-                <Avatar name={c.full_name} size="md" />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{c.full_name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
-                    Trainer: {trainers.find(t => t.id === c.clientRow?.trainer_id)?.full_name || 'Unassigned'} ·
-                    Last seen: {c.last_seen ? new Date(c.last_seen).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'never'}
+              <div key={c.id}>
+                <div onClick={() => setClientExpanded(prev => ({ ...prev, [c.id]: !prev[c.id] }))}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer', marginBottom: clientExpanded[c.id] ? 0 : 6,
+                    background: clientExpanded[c.id] ? 'var(--amber-dim)' : 'var(--bg1)',
+                    border: `1px solid ${clientExpanded[c.id] ? 'rgba(245,158,11,0.3)' : 'var(--border)'}`,
+                    borderRadius: clientExpanded[c.id] ? '10px 10px 0 0' : 10, transition: 'all 0.15s' }}>
+                  <Avatar name={c.full_name} size="md" />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{c.full_name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+                      {c.email} · Last seen: {c.last_seen ? new Date(c.last_seen).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'never'}
+                    </div>
                   </div>
+                  <Badge variant={c.clientRow?.status === 'inactive' ? 'red' : 'green'}>
+                    {c.clientRow?.status || 'active'}
+                  </Badge>
                 </div>
-                <Badge variant={c.clientRow?.status === 'inactive' ? 'red' : 'green'}>
-                  {c.clientRow?.status || 'active'}
-                </Badge>
+
+                {clientExpanded[c.id] && (
+                  <div style={{ background: 'var(--bg2)', border: '1px solid rgba(245,158,11,0.3)', borderTop: 'none', borderRadius: '0 0 10px 10px', padding: 14, marginBottom: 6 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10 }}>
+                      Trainer: <span style={{ color: 'var(--text2)', fontWeight: 600 }}>{trainers.find(t => t.id === c.clientRow?.trainer_id)?.full_name || 'Unassigned'}</span>
+                    </div>
+                    <button className="btn btn-danger btn-sm" onClick={() => deleteAccount(c.id)}>
+                      <IconTrash size={14} /> Delete Account
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
 
@@ -498,27 +511,6 @@ export default function AdminDashboard() {
                 {new Date(selectedDoc.signed_at).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
               </div>
             </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* Client detail modal */}
-      <Modal open={showClientModal} onClose={() => setShowClientModal(false)} title="Client Details">
-        {selectedClientProfile && (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-              <Avatar name={selectedClientProfile.full_name} size="lg" />
-              <div>
-                <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 16, fontWeight: 800 }}>{selectedClientProfile.full_name}</div>
-                <div style={{ fontSize: 12, color: 'var(--text3)' }}>{selectedClientProfile.email}</div>
-              </div>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>
-              Trainer: {trainers.find(t => t.id === selectedClientProfile.clientRow?.trainer_id)?.full_name || 'Unassigned'}
-            </div>
-            <button className="btn btn-danger" onClick={() => { deleteAccount(selectedClientProfile.id); setShowClientModal(false) }} style={{ width: '100%' }}>
-              <IconTrash size={14} /> Delete Account
-            </button>
           </div>
         )}
       </Modal>

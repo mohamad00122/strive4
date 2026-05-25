@@ -57,11 +57,11 @@ export function DocumentsSheet({ documents = [] }) {
             <Badge variant="green">Signed</Badge>
           </div>
           <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-            {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            {new Date(doc.signed_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
           </div>
-          {doc.signed_as && (
+          {doc.signed_name && (
             <div style={{ fontSize: 14, fontStyle: 'italic', color: 'var(--amber)', marginTop: 6 }}>
-              "{doc.signed_as}"
+              "{doc.signed_name}"
             </div>
           )}
         </div>

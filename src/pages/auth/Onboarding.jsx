@@ -200,7 +200,7 @@ export default function Onboarding() {
     await supabase.from('signed_documents').insert({
       client_id: user.id,
       document_type: 'liability_waiver',
-      signed_as: waiverSig.trim(),
+      signed_name: waiverSig.trim(),
     })
     setLoading(false)
     setStep(4)
@@ -214,7 +214,7 @@ export default function Onboarding() {
     await supabase.from('signed_documents').insert({
       client_id: user.id,
       document_type: 'training_contract',
-      signed_as: contractSig.trim(),
+      signed_name: contractSig.trim(),
     })
     await supabase.from('profiles').update({ onboarded: true }).eq('id', user.id)
     await refreshProfile()
