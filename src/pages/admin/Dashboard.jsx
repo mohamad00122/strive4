@@ -58,14 +58,18 @@ export default function AdminDashboard() {
     setLoading(true)
     const { data: trainersData } = await supabase.from('profiles').select('*').eq('role', 'trainer')
     const { data: clientsData } = await supabase.from('profiles').select('*').eq('role', 'client')
-    const { data: relData } = await supabase.from('clients').select('trainer_id, client_id')
-    setClientRelationships(relData || [])
+    const { data: clientRelData } = await supabase.from('clients').select('*')
     const [docsRes, activityRes] = await Promise.all([
-      supabase.from('signed_documents').select('*, client:profiles!signed_documents_client_id_fkey(full_name), trainer:clients!signed_documents_client_id_fkey(profiles!clients_trainer_id_fkey(full_name))').order('created_at', { ascending: false }),
+      supabase.from('signed_documents').select('*, client:profiles!signed_documents_client_id_fkey(full_name)').order('signed_at', { ascending: false }),
       supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(20),
     ])
     setTrainers(trainersData || [])
-    setClients(clientsData || [])
+    const clientsWithStatus = (clientsData || []).map(c => ({
+      ...c,
+      clientRow: (clientRelData || []).find(r => r.client_id === c.id)
+    }))
+    setClients(clientsWithStatus)
+    setClientRelationships(clientRelData || [])
     setDocuments(docsRes.data || [])
     setActivityLog(activityRes.data || [])
     setLoading(false)
@@ -136,7 +140,7 @@ export default function AdminDashboard() {
   const filteredClients = clients.filter(c => {
     const name = c.full_name?.toLowerCase() || ''
     const matchSearch = name.includes(clientSearch.toLowerCase())
-    const status = c.clients?.[0]?.status || 'active'
+    const status = c.clientRow?.status || 'active'
     const matchFilter = clientFilter === 'All' || clientFilter.toLowerCase() === status
     return matchSearch && matchFilter
   })
@@ -351,12 +355,12 @@ export default function AdminDashboard() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{c.full_name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
-                    Trainer: {c.clients?.[0]?.profiles?.full_name || 'Unassigned'} ·
+                    Trainer: {trainers.find(t => t.id === c.clientRow?.trainer_id)?.full_name || 'Unassigned'} ·
                     Last seen: {c.last_seen ? new Date(c.last_seen).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'never'}
                   </div>
                 </div>
-                <Badge variant={c.clients?.[0]?.status === 'inactive' ? 'red' : 'green'}>
-                  {c.clients?.[0]?.status || 'active'}
+                <Badge variant={c.clientRow?.status === 'inactive' ? 'red' : 'green'}>
+                  {c.clientRow?.status || 'active'}
                 </Badge>
               </div>
             ))}
@@ -388,9 +392,9 @@ export default function AdminDashboard() {
                       <td style={{ padding: '10px 12px', color: 'var(--text2)' }}>
                         {doc.document_type === 'liability_waiver' ? 'Liability Waiver' : 'Training Contract'}
                       </td>
-                      <td style={{ padding: '10px 12px', fontStyle: 'italic', color: 'var(--amber)' }}>{doc.signed_as || '—'}</td>
+                      <td style={{ padding: '10px 12px', fontStyle: 'italic', color: 'var(--amber)' }}>{doc.signed_name || '—'}</td>
                       <td style={{ padding: '10px 12px', color: 'var(--text3)' }}>
-                        {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {new Date(doc.signed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
                     </tr>
                   ))}
@@ -486,12 +490,12 @@ export default function AdminDashboard() {
             </div>
             <div style={{ marginBottom: 12 }}>
               <div className="section-title">Signed as</div>
-              <div style={{ fontSize: 16, fontStyle: 'italic', color: 'var(--amber)' }}>{selectedDoc.signed_as || '—'}</div>
+              <div style={{ fontSize: 16, fontStyle: 'italic', color: 'var(--amber)' }}>{selectedDoc.signed_name || '—'}</div>
             </div>
             <div>
               <div className="section-title">Date</div>
               <div style={{ fontSize: 13, color: 'var(--text2)' }}>
-                {new Date(selectedDoc.created_at).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                {new Date(selectedDoc.signed_at).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
               </div>
             </div>
           </div>
@@ -510,7 +514,7 @@ export default function AdminDashboard() {
               </div>
             </div>
             <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>
-              Trainer: {selectedClientProfile.clients?.[0]?.profiles?.full_name || 'Unassigned'}
+              Trainer: {trainers.find(t => t.id === selectedClientProfile.clientRow?.trainer_id)?.full_name || 'Unassigned'}
             </div>
             <button className="btn btn-danger" onClick={() => { deleteAccount(selectedClientProfile.id); setShowClientModal(false) }} style={{ width: '100%' }}>
               <IconTrash size={14} /> Delete Account
