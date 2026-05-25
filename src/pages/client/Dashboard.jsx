@@ -49,6 +49,7 @@ export default function ClientDashboard() {
   const { profile, user, signOut, refreshProfile } = useAuth()
   const navigate = useNavigate()
   const { display, label, isKg, toStorageLbs } = useUnits()
+  const todayDayName = DAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]
   const [tab, setTab] = useState('home')
   const [loading, setLoading] = useState(true)
 
@@ -65,10 +66,9 @@ export default function ClientDashboard() {
   const [trainerInfo, setTrainerInfo] = useState(null)
 
   // Program tab
-  const [activeDay, setActiveDay] = useState(DAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1])
+  const [activeDay, setActiveDay] = useState(todayDayName)
   const [activeExId, setActiveExId] = useState(null)
   const [doneExIds, setDoneExIds] = useState([])
-  const [sessionLogged, setSessionLogged] = useState(false)
   const [showLogModal, setShowLogModal] = useState(false)
 
   // Progress tab
@@ -139,11 +139,8 @@ export default function ClientDashboard() {
         .select('*, exercises(*, video:videos(id, title, video_url))')
         .eq('plan_id', planId)
         .order('created_at', { ascending: true })
-      setDays(daysData || [])
-
-      const todayDayName = DAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]
-      const todayLog = logsRes.data?.find(l => l.day_of_week === todayDayName)
-      setSessionLogged(!!todayLog)
+      const sorted = [...(daysData || [])].sort((a, b) => DAYS.indexOf(a.day_of_week) - DAYS.indexOf(b.day_of_week))
+      setDays(sorted)
     }
 
     setSessionLogs(logsRes.data || [])
@@ -193,7 +190,6 @@ export default function ClientDashboard() {
     })
     setOptimisticLogged(prev => [...prev, activeDay])
     setSessionLogs(prev => [...prev, { day_of_week: activeDay, logged_at: new Date().toISOString() }])
-    setSessionLogged(true)
     setShowLogModal(false)
   }
 
@@ -246,7 +242,6 @@ export default function ClientDashboard() {
     setTimeout(() => setSettingsMsg(''), 2500)
   }
 
-  const todayDayName = DAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]
   const activeDayData = days.find(d => d.day_of_week === activeDay)
   const exercises = (activeDayData?.exercises || []).sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
   const todayLogged = completedDays.includes(activeDay)
