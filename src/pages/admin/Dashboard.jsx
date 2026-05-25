@@ -1,12 +1,28 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/AuthContext'
 import Avatar from '../../components/Avatar'
 import Badge from '../../components/Badge'
+import ComplianceRing from '../../components/ComplianceRing'
 import Modal from '../../components/Modal'
 import StatTile from '../../components/StatTile'
 import Spinner from '../../components/Spinner'
-import { IconUsers, IconBarbell, IconAlertTriangle, IconPlus, IconTrash } from '@tabler/icons-react'
+import { IntakeSheet, DocumentsSheet } from '../../components/ClientSheets'
+import { IconUsers, IconBarbell, IconAlertTriangle, IconPlus, IconTrash, IconExternalLink } from '@tabler/icons-react'
+
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const DAY_ABBR = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+
+function getMondayISO() {
+  const now = new Date()
+  const dow = now.getDay()
+  const daysToMonday = dow === 0 ? 6 : dow - 1
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - daysToMonday)
+  monday.setHours(0, 0, 0, 0)
+  return monday.toISOString()
+}
 
 const SECTIONS = {
   crm: ['Overview', 'Revenue'],
@@ -18,6 +34,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 
 export default function AdminDashboard() {
   const { profile, user, signOut, refreshProfile } = useAuth()
+  const navigate = useNavigate()
   const [section, setSection] = useState('Overview')
   const [loading, setLoading] = useState(true)
 
@@ -26,10 +43,23 @@ export default function AdminDashboard() {
   const [documents, setDocuments] = useState([])
   const [activityLog, setActivityLog] = useState([])
   const [clientRelationships, setClientRelationships] = useState([])
+  const [trainerVideos, setTrainerVideos] = useState({})
+
+  const [trainerExpanded, setTrainerExpanded] = useState({})
+  const [trainerPanelData, setTrainerPanelData] = useState({})
+  const [trainerPanelLoading, setTrainerPanelLoading] = useState({})
+  const [trainerNotes, setTrainerNotes] = useState({})
 
   const [clientSearch, setClientSearch] = useState('')
   const [clientFilter, setClientFilter] = useState('All')
-  const [trainerExpanded, setTrainerExpanded] = useState({})
+  const [clientExpanded, setClientExpanded] = useState({})
+  const [clientPanelData, setClientPanelData] = useState({})
+  const [clientPanelLoading, setClientPanelLoading] = useState({})
+
+  const [showIntakeModal, setShowIntakeModal] = useState(false)
+  const [modalIntake, setModalIntake] = useState(null)
+  const [showDocsSheetModal, setShowDocsSheetModal] = useState(false)
+  const [modalDocs, setModalDocs] = useState([])
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [createRole, setCreateRole] = useState('trainer')
@@ -43,8 +73,6 @@ export default function AdminDashboard() {
 
   const [showDocModal, setShowDocModal] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState(null)
-
-  const [clientExpanded, setClientExpanded] = useState({})
 
   const [fullName, setFullName] = useState(profile?.full_name || '')
   const [newPassword, setNewPassword] = useState('')
@@ -62,6 +90,10 @@ export default function AdminDashboard() {
       supabase.from('signed_documents').select('*, client:profiles!signed_documents_client_id_fkey(full_name)').order('signed_at', { ascending: false }),
       supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(20),
     ])
+    const { data: videosData } = await supabase.from('videos').select('trainer_id')
+    const videosByTrainer = {}
+    ;(videosData || []).forEach(v => { videosByTrainer[v.trainer_id] = (videosByTrainer[v.trainer_id] || 0) + 1 })
+    setTrainerVideos(videosByTrainer)
     setTrainers(trainersData || [])
     const clientsWithStatus = (clientsData || []).map(c => ({
       ...c,
@@ -132,6 +164,65 @@ export default function AdminDashboard() {
     setSettingsMsg('Saved!')
     setSettingsSaving(false)
     setTimeout(() => setSettingsMsg(''), 2500)
+  }
+
+  const openTrainerPanel = async (trainerId, clientIds) => {
+    if (trainerPanelLoading[trainerId] || trainerPanelData[trainerId]) return
+    setTrainerPanelLoading(prev => ({ ...prev, [trainerId]: true }))
+    const since28 = new Date(Date.now() - 28 * 86400000).toISOString()
+    let compliance = 0
+    if (clientIds.length > 0) {
+      const { data: sessions } = await supabase.from('session_logs').select('client_id').in('client_id', clientIds).gte('logged_at', since28)
+      compliance = Math.min(Math.round(((sessions?.length || 0) / (clientIds.length * 4 * 4)) * 100), 100)
+    }
+    setTrainerPanelData(prev => ({ ...prev, [trainerId]: { compliance } }))
+    setTrainerPanelLoading(prev => ({ ...prev, [trainerId]: false }))
+  }
+
+  const openClientPanel = async (clientId) => {
+    if (clientPanelLoading[clientId] || clientPanelData[clientId]) return
+    setClientPanelLoading(prev => ({ ...prev, [clientId]: true }))
+    const since28 = new Date(Date.now() - 28 * 86400000).toISOString()
+    const mondayISO = getMondayISO()
+    const [intakeRes, docsRes, sessions28Res, sessionsWeekRes, weightRes] = await Promise.all([
+      supabase.from('intake_forms').select('*').eq('client_id', clientId).maybeSingle(),
+      supabase.from('signed_documents').select('*').eq('client_id', clientId),
+      supabase.from('session_logs').select('*').eq('client_id', clientId).gte('logged_at', since28),
+      supabase.from('session_logs').select('*').eq('client_id', clientId).gte('logged_at', mondayISO),
+      supabase.from('weight_logs').select('weight_lbs').eq('client_id', clientId).order('logged_at', { ascending: false }).limit(1),
+    ])
+    const { data: plans } = await supabase.from('workout_plans').select('id').eq('client_id', clientId).order('created_at', { ascending: false }).limit(1)
+    let workoutDays = []
+    if (plans?.[0]?.id) {
+      const { data: daysData } = await supabase.from('workout_days').select('day_of_week, is_rest_day').eq('plan_id', plans[0].id)
+      workoutDays = daysData || []
+    }
+    const rel = clientRelationships.find(r => r.client_id === clientId)
+    let lastMessage = null
+    if (rel?.trainer_id) {
+      const { data: msgData } = await supabase.from('messages').select('content, sender_id')
+        .or(`and(sender_id.eq.${clientId},receiver_id.eq.${rel.trainer_id}),and(sender_id.eq.${rel.trainer_id},receiver_id.eq.${clientId})`)
+        .order('created_at', { ascending: false }).limit(1)
+      lastMessage = msgData?.[0] || null
+    }
+    const nonRestDays = workoutDays.filter(d => !d.is_rest_day).length
+    const compliance28 = nonRestDays > 0
+      ? Math.min(Math.round(((sessions28Res.data?.length || 0) / (nonRestDays * 4)) * 100), 100)
+      : 0
+    setClientPanelData(prev => ({
+      ...prev,
+      [clientId]: {
+        intake: intakeRes.data,
+        docs: docsRes.data || [],
+        sessions28: sessions28Res.data?.length || 0,
+        sessionsWeek: sessionsWeekRes.data?.length || 0,
+        weight: weightRes.data?.[0]?.weight_lbs,
+        workoutDays,
+        compliance28,
+        lastMessage,
+      }
+    }))
+    setClientPanelLoading(prev => ({ ...prev, [clientId]: false }))
   }
 
   const inactiveClients = clients.filter(c => c.last_seen && (Date.now() - new Date(c.last_seen).getTime()) / 86400000 > 14)
@@ -287,7 +378,14 @@ export default function AdminDashboard() {
 
             {trainers.map(t => (
               <div key={t.id}>
-                <div onClick={() => setTrainerExpanded(prev => ({ ...prev, [t.id]: !prev[t.id] }))}
+                <div onClick={() => {
+                  const isOpen = !trainerExpanded[t.id]
+                  setTrainerExpanded(prev => ({ ...prev, [t.id]: isOpen }))
+                  if (isOpen) {
+                    const clientIds = clientRelationships.filter(r => r.trainer_id === t.id).map(r => r.client_id)
+                    openTrainerPanel(t.id, clientIds)
+                  }
+                }}
                   style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer', marginBottom: trainerExpanded[t.id] ? 0 : 6,
                     background: trainerExpanded[t.id] ? 'var(--amber-dim)' : 'var(--bg1)',
                     border: `1px solid ${trainerExpanded[t.id] ? 'rgba(245,158,11,0.3)' : 'var(--border)'}`,
@@ -304,18 +402,72 @@ export default function AdminDashboard() {
 
                 {trainerExpanded[t.id] && (
                   <div style={{ background: 'var(--bg2)', border: '1px solid rgba(245,158,11,0.3)', borderTop: 'none', borderRadius: '0 0 10px 10px', padding: 14, marginBottom: 6 }}>
-                    <div className="section-title" style={{ marginBottom: 8 }}>Clients</div>
-                    {clientRelationships.filter(r => r.trainer_id === t.id).map(r => {
-                      const c = clients.find(cl => cl.id === r.client_id)
-                      return c ? (
-                        <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                          <Avatar name={c.full_name} size="sm" />
-                          <span style={{ fontSize: 12, color: 'var(--text2)' }}>{c.full_name}</span>
+                    {trainerPanelLoading[t.id] ? (
+                      <div style={{ display: 'flex', justifyContent: 'center', padding: 20 }}><Spinner size={24} /></div>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                          <div style={{ flex: 1, background: 'var(--bg3)', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--amber)' }}>{clientRelationships.filter(r => r.trainer_id === t.id).length}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Clients</div>
+                          </div>
+                          <div style={{ flex: 1, background: 'var(--bg3)', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--amber)' }}>{trainerVideos[t.id] || 0}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Videos</div>
+                          </div>
+                          <div style={{ flex: 1, background: 'var(--bg3)', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text2)' }}>{t.created_at ? new Date(t.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Member since</div>
+                          </div>
                         </div>
-                      ) : null
-                    })}
-                    {clientRelationships.filter(r => r.trainer_id === t.id).length === 0 && (
-                      <div style={{ fontSize: 12, color: 'var(--text3)' }}>No clients assigned yet.</div>
+
+                        {trainerPanelData[t.id] && (
+                          <div style={{ marginBottom: 14 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ fontSize: 11, color: 'var(--text3)' }}>Avg client compliance (28d)</span>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)' }}>{trainerPanelData[t.id].compliance}%</span>
+                            </div>
+                            <div className="compliance-bar">
+                              <div className="compliance-bar-fill" style={{ width: `${trainerPanelData[t.id].compliance}%` }} />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="section-title" style={{ marginBottom: 8 }}>Clients</div>
+                        {clientRelationships.filter(r => r.trainer_id === t.id).map(r => {
+                          const c = clients.find(cl => cl.id === r.client_id)
+                          return c ? (
+                            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                              <Avatar name={c.full_name} size="sm" />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{c.full_name}</div>
+                                <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                                  Last seen: {c.last_seen ? new Date(c.last_seen).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'never'}
+                                </div>
+                              </div>
+                              <Badge variant={c.clientRow?.status === 'inactive' ? 'red' : 'green'}>{c.clientRow?.status || 'active'}</Badge>
+                              <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/trainer/client/${c.id}`)} style={{ fontSize: 11, padding: '3px 8px', flexShrink: 0 }}>
+                                <IconExternalLink size={12} /> Plan
+                              </button>
+                            </div>
+                          ) : null
+                        })}
+                        {clientRelationships.filter(r => r.trainer_id === t.id).length === 0 && (
+                          <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 12 }}>No clients assigned yet.</div>
+                        )}
+
+                        <div style={{ marginTop: 14 }}>
+                          <div className="section-title" style={{ marginBottom: 6 }}>Admin Notes</div>
+                          <textarea
+                            className="input"
+                            placeholder="Private notes about this trainer..."
+                            rows={3}
+                            value={trainerNotes[t.id] || ''}
+                            onChange={e => setTrainerNotes(prev => ({ ...prev, [t.id]: e.target.value }))}
+                            style={{ width: '100%', resize: 'vertical', fontSize: 12 }}
+                          />
+                        </div>
+                      </>
                     )}
                   </div>
                 )}
@@ -348,7 +500,11 @@ export default function AdminDashboard() {
 
             {filteredClients.map(c => (
               <div key={c.id}>
-                <div onClick={() => setClientExpanded(prev => ({ ...prev, [c.id]: !prev[c.id] }))}
+                <div onClick={() => {
+                  const isOpen = !clientExpanded[c.id]
+                  setClientExpanded(prev => ({ ...prev, [c.id]: isOpen }))
+                  if (isOpen) openClientPanel(c.id)
+                }}
                   style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer', marginBottom: clientExpanded[c.id] ? 0 : 6,
                     background: clientExpanded[c.id] ? 'var(--amber-dim)' : 'var(--bg1)',
                     border: `1px solid ${clientExpanded[c.id] ? 'rgba(245,158,11,0.3)' : 'var(--border)'}`,
@@ -367,12 +523,84 @@ export default function AdminDashboard() {
 
                 {clientExpanded[c.id] && (
                   <div style={{ background: 'var(--bg2)', border: '1px solid rgba(245,158,11,0.3)', borderTop: 'none', borderRadius: '0 0 10px 10px', padding: 14, marginBottom: 6 }}>
-                    <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10 }}>
-                      Trainer: <span style={{ color: 'var(--text2)', fontWeight: 600 }}>{trainers.find(t => t.id === c.clientRow?.trainer_id)?.full_name || 'Unassigned'}</span>
-                    </div>
-                    <button className="btn btn-danger btn-sm" onClick={() => deleteAccount(c.id)}>
-                      <IconTrash size={14} /> Delete Account
-                    </button>
+                    {clientPanelLoading[c.id] ? (
+                      <div style={{ display: 'flex', justifyContent: 'center', padding: 20 }}><Spinner size={24} /></div>
+                    ) : clientPanelData[c.id] ? (
+                      <>
+                        <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                          <div style={{ flex: 1, background: 'var(--bg3)', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--amber)' }}>{clientPanelData[c.id].sessionsWeek}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>This week</div>
+                          </div>
+                          <div style={{ flex: 1, background: 'var(--bg3)', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--amber)' }}>{clientPanelData[c.id].sessions28}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Last 28d</div>
+                          </div>
+                          <div style={{ flex: 1, background: 'var(--bg3)', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--amber)' }}>{clientPanelData[c.id].docs.length}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Docs signed</div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+                          <div style={{ flex: 1 }}>
+                            {clientPanelData[c.id].intake?.fitness_goal && (
+                              <div style={{ marginBottom: 6 }}>
+                                <span style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginRight: 6 }}>Goal</span>
+                                <Badge variant="amber">
+                                  {{ build_muscle: 'Build Muscle', lose_weight: 'Lose Weight', endurance: 'Endurance', general_fitness: 'General Fitness' }[clientPanelData[c.id].intake.fitness_goal] || clientPanelData[c.id].intake.fitness_goal}
+                                </Badge>
+                              </div>
+                            )}
+                            {clientPanelData[c.id].weight && (
+                              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>
+                                <span style={{ color: 'var(--text3)' }}>Weight: </span>{clientPanelData[c.id].weight} lbs
+                              </div>
+                            )}
+                            <div style={{ fontSize: 12, color: 'var(--text2)' }}>
+                              <span style={{ color: 'var(--text3)' }}>Trainer: </span>
+                              {trainers.find(t => t.id === c.clientRow?.trainer_id)?.full_name || 'Unassigned'}
+                            </div>
+                          </div>
+                          <ComplianceRing percent={clientPanelData[c.id].compliance28} size={56} strokeWidth={6} />
+                        </div>
+
+                        {clientPanelData[c.id].workoutDays.length > 0 && (
+                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 14 }}>
+                            {DAYS.map((day, i) => {
+                              const d = clientPanelData[c.id].workoutDays.find(wd => wd.day_of_week === day)
+                              const isRest = !d || d.is_rest_day
+                              return (
+                                <div key={day} style={{
+                                  padding: '3px 8px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+                                  background: isRest ? 'var(--bg3)' : 'var(--amber-dim)',
+                                  color: isRest ? 'var(--text3)' : 'var(--amber)',
+                                  border: `1px solid ${isRest ? 'var(--border)' : 'rgba(245,158,11,0.3)'}`,
+                                }}>
+                                  {DAY_ABBR[i]}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {clientPanelData[c.id].lastMessage && (
+                          <div style={{ marginBottom: 14, padding: '8px 10px', background: 'var(--bg3)', borderRadius: 8 }}>
+                            <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4 }}>Last message</div>
+                            <div style={{ fontSize: 12, color: 'var(--text2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {clientPanelData[c.id].lastMessage.sender_id === c.id ? `${c.full_name}: ` : 'Trainer: '}
+                              {clientPanelData[c.id].lastMessage.content}
+                            </div>
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => { setModalIntake(clientPanelData[c.id].intake); setShowIntakeModal(true) }}>Intake</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => { setModalDocs(clientPanelData[c.id].docs); setShowDocsSheetModal(true) }}>Documents</button>
+                          <button className="btn btn-danger btn-sm" onClick={() => deleteAccount(c.id)}><IconTrash size={14} /> Delete</button>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -485,6 +713,16 @@ export default function AdminDashboard() {
             </button>
           </>
         )}
+      </Modal>
+
+      {/* Intake sheet modal */}
+      <Modal open={showIntakeModal} onClose={() => setShowIntakeModal(false)} title="Intake Form">
+        <IntakeSheet intakeForm={modalIntake} />
+      </Modal>
+
+      {/* Documents sheet modal */}
+      <Modal open={showDocsSheetModal} onClose={() => setShowDocsSheetModal(false)} title="Signed Documents">
+        <DocumentsSheet documents={modalDocs} />
       </Modal>
 
       {/* Document detail modal */}
