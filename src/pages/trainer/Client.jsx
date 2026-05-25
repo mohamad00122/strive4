@@ -35,6 +35,7 @@ export default function TrainerClient() {
   const [videos, setVideos] = useState([])
   const [sessionLogs, setSessionLogs] = useState([])
   const [compliance28, setCompliance28] = useState(0)
+  const [error, setError] = useState(null)
 
   const [showAddForm, setShowAddForm] = useState(false)
   const [newName, setNewName] = useState('')
@@ -54,9 +55,10 @@ export default function TrainerClient() {
 
   const loadAll = async () => {
     setLoading(true)
+    setError(null)
     const [profileRes, clientRes, videosRes, sessionsRes, sessions28Res] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', clientId).single(),
-      supabase.from('clients').select('*').eq('trainer_id', user.id).eq('client_id', clientId).single(),
+      supabase.from('clients').select('*').eq('trainer_id', user.id).eq('client_id', clientId).maybeSingle(),
       supabase.from('videos').select('*').eq('trainer_id', user.id),
       supabase.from('session_logs').select('*').eq('client_id', clientId).gte('logged_at', mondayISO),
       supabase.from('session_logs').select('*').eq('client_id', clientId).gte('logged_at', new Date(Date.now() - 28 * 86400000).toISOString()),
@@ -67,18 +69,38 @@ export default function TrainerClient() {
     setSessionLogs(sessionsRes.data || [])
 
     let planData = null
-    const { data: plans } = await supabase.from('workout_plans').select('id').eq('client_id', clientId).order('created_at', { ascending: false }).limit(1)
+    const { data: plans, error: plansError } = await supabase
+      .from('workout_plans')
+      .select('id')
+      .eq('client_id', clientId)
+      .eq('trainer_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+    console.log('[Plan Builder] plans query:', { data: plans, error: plansError })
 
     if (plans?.length > 0) {
       planData = plans[0]
     } else {
-      const { data: newPlan } = await supabase.from('workout_plans').insert({
-        client_id: clientId, trainer_id: user.id, name: 'Training Plan'
-      }).select().single()
+      const { data: newPlan, error: insertError } = await supabase
+        .from('workout_plans')
+        .insert({ client_id: clientId, trainer_id: user.id, name: 'Training Plan' })
+        .select()
+        .single()
+      console.log('[Plan Builder] plan insert:', { data: newPlan, error: insertError })
+
+      if (insertError) {
+        setError(`Failed to create training plan: ${insertError.message}`)
+        setLoading(false)
+        return
+      }
+
       planData = newPlan
       if (newPlan) {
         for (const day of DAYS) {
-          await supabase.from('workout_days').insert({ plan_id: newPlan.id, day_of_week: day, is_rest_day: false })
+          const { error: dayError } = await supabase
+            .from('workout_days')
+            .insert({ plan_id: newPlan.id, day_of_week: day, is_rest_day: false })
+          console.log(`[Plan Builder] day insert (${day}):`, { error: dayError })
         }
       }
     }
@@ -86,11 +108,12 @@ export default function TrainerClient() {
     if (planData) {
       setPlan(planData)
       await fetchDays(planData.id)
-    }
 
-    const nonRestDays = (await supabase.from('workout_days').select('*').eq('plan_id', planData?.id)).data?.filter(d => !d.is_rest_day).length || 1
-    const sessions28Count = sessions28Res.data?.length || 0
-    setCompliance28(Math.min(Math.round((sessions28Count / (nonRestDays * 4)) * 100), 100))
+      const { data: wdData } = await supabase.from('workout_days').select('*').eq('plan_id', planData.id)
+      const nonRestDays = (wdData || []).filter(d => !d.is_rest_day).length || 1
+      const sessions28Count = sessions28Res.data?.length || 0
+      setCompliance28(Math.min(Math.round((sessions28Count / (nonRestDays * 4)) * 100), 100))
+    }
 
     setLoading(false)
   }
@@ -207,6 +230,12 @@ export default function TrainerClient() {
         </div>
         <Badge variant={clientStatus === 'inactive' ? 'red' : 'green'} style={{ marginLeft: 4 }}>{clientStatus}</Badge>
       </div>
+
+      {error && (
+        <div style={{ background: 'var(--red-dim)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '12px 16px', margin: '16px 20px', color: 'var(--red)', fontSize: 13 }}>
+          <strong>Error:</strong> {error}
+        </div>
+      )}
 
       {/* Main layout */}
       <div style={{ display: 'flex', gap: 0, maxWidth: 1100, margin: '0 auto' }}>
