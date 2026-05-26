@@ -76,8 +76,6 @@ export default function TrainerClient() {
       .eq('trainer_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
-    console.log('[Plan Builder] plans query:', { data: plans, error: plansError })
-
     if (plans?.length > 0) {
       planData = plans[0]
     } else {
@@ -86,8 +84,6 @@ export default function TrainerClient() {
         .insert({ client_id: clientId, trainer_id: user.id, name: 'Training Plan' })
         .select()
         .single()
-      console.log('[Plan Builder] plan insert:', { data: newPlan, error: insertError })
-
       if (insertError) {
         setError(`Failed to create training plan: ${insertError.message}`)
         setLoading(false)
@@ -100,7 +96,6 @@ export default function TrainerClient() {
           const { error: dayError } = await supabase
             .from('workout_days')
             .insert({ plan_id: newPlan.id, day_of_week: day, is_rest_day: false })
-          console.log(`[Plan Builder] day insert (${day}):`, { error: dayError })
         }
       }
     }
@@ -126,7 +121,6 @@ export default function TrainerClient() {
       .order('created_at', { ascending: true })
     setDays(data || [])
     setActiveDay(data?.[0]?.day_of_week || DAYS[0])
-    console.log('days loaded:', data)
   }
 
   const toggleRestDay = async (dayId, current) => {

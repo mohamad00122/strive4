@@ -124,7 +124,7 @@ export default function ClientDashboard() {
     setLoading(true)
     const [planRes, logsRes, weightRes, perfRes, intakeRes, clientRes] = await Promise.all([
       supabase.from('workout_plans').select('id').eq('client_id', user.id).order('created_at', { ascending: false }).limit(1),
-      supabase.from('session_logs').select('*').eq('client_id', user.id).gte('logged_at', mondayISO),
+      supabase.from('session_logs').select('*').eq('client_id', user.id).order('logged_at', { ascending: false }),
       supabase.from('weight_logs').select('*').eq('client_id', user.id).order('logged_at', { ascending: true }),
       supabase.from('performance_logs').select('*').eq('client_id', user.id).order('logged_at', { ascending: false }),
       supabase.from('intake_forms').select('*').eq('client_id', user.id).maybeSingle(),
@@ -143,7 +143,8 @@ export default function ClientDashboard() {
       setDays(sorted)
     }
 
-    setSessionLogs(logsRes.data || [])
+    const allLogs = logsRes.data || []
+    setSessionLogs(allLogs)
     setWeightLogs(weightRes.data || [])
     setPerformanceLogs(perfRes.data || [])
     setIntakeForm(intakeRes.data || null)
@@ -163,23 +164,20 @@ export default function ClientDashboard() {
     setLoading(false)
   }
 
+  const weekSessionLogs = sessionLogs.filter(l => new Date(l.logged_at) >= new Date(mondayISO))
+
   const completedDays = [...new Set([
-    ...sessionLogs.map(l => l.day_of_week),
+    ...weekSessionLogs.map(l => l.day_of_week),
     ...optimisticLogged
   ])]
 
   const weekPercent = days.length > 0
-    ? Math.round((sessionLogs.length / days.filter(d => !d.is_rest_day).length) * 100)
+    ? Math.min(Math.round((weekSessionLogs.length / days.filter(d => !d.is_rest_day).length) * 100), 100)
     : 0
 
   const currentWeight = weightLogs.length > 0 ? weightLogs[weightLogs.length - 1] : null
   const firstWeight = weightLogs.length > 0 ? weightLogs[0] : null
   const weightDelta = currentWeight && firstWeight ? currentWeight.weight_lbs - firstWeight.weight_lbs : null
-
-  const allSessionLogs = async () => {
-    const { data } = await supabase.from('session_logs').select('*').eq('client_id', user.id)
-    return data || []
-  }
 
   const logSession = async () => {
     const activeDayData = days.find(d => d.day_of_week === activeDay)
@@ -327,17 +325,37 @@ export default function ClientDashboard() {
                 label={weightDelta !== null ? (weightDelta < 0 ? `${label} lost` : `${label} gained`) : 'Weight change'}
                 color={weightDelta !== null ? (weightDelta < 0 ? 'var(--green)' : 'var(--red)') : 'var(--text)'}
               />
-              <StatTile number={sessionLogs.length} label="Sessions this week" />
+              <StatTile number={weekSessionLogs.length} label="Sessions this week" />
               <StatTile number={`${(() => {
+                if (!sessionLogs || sessionLogs.length === 0) return 0
+                const nonRestDayCount = days.filter(d => !d.is_rest_day).length
+                if (nonRestDayCount === 0) return 0
+
                 let streak = 0
                 const now2 = new Date()
+
                 for (let w = 0; w < 52; w++) {
-                  const wStart = new Date(mondayISO)
-                  wStart.setDate(wStart.getDate() - w * 7)
+                  const wStart = new Date(now2)
+                  const dow = wStart.getDay()
+                  const daysToMonday = dow === 0 ? 6 : dow - 1
+                  wStart.setDate(wStart.getDate() - daysToMonday - w * 7)
+                  wStart.setHours(0, 0, 0, 0)
                   const wEnd = new Date(wStart)
                   wEnd.setDate(wEnd.getDate() + 7)
-                  const { length } = { length: 0 }
-                  break
+
+                  const logsThisWeek = sessionLogs.filter(l => {
+                    const d = new Date(l.logged_at)
+                    return d >= wStart && d < wEnd
+                  })
+
+                  if (logsThisWeek.length >= Math.ceil(nonRestDayCount * 0.5)) {
+                    streak++
+                  } else {
+                    if (w === 0) {
+                      continue
+                    }
+                    break
+                  }
                 }
                 return streak
               })()}wks`} label="Streak" />

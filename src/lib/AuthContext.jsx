@@ -34,6 +34,10 @@ export const AuthProvider = ({ children }) => {
       .single()
     setProfile(data)
     setLoading(false)
+    await supabase
+      .from('profiles')
+      .update({ last_seen: new Date().toISOString() })
+      .eq('id', userId)
   }
 
   const refreshProfile = async () => {
