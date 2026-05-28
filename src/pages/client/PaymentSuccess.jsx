@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../lib/AuthContext'
+import { supabase } from '../../lib/supabase'
 import Spinner from '../../components/Spinner'
 
 export default function PaymentSuccess() {
-  const { refreshProfile, profile } = useAuth()
+  const { refreshProfile, user } = useAuth()
   const navigate = useNavigate()
   const [attempts, setAttempts] = useState(0)
   const [ready, setReady] = useState(false)
@@ -12,20 +13,34 @@ export default function PaymentSuccess() {
   useEffect(() => {
     const check = async () => {
       await refreshProfile()
+      const { data } = await supabase
+        .from('profiles')
+        .select('subscription_status')
+        .eq('id', user.id)
+        .single()
+
+      if (data?.subscription_status === 'active') {
+        setReady(true)
+        return
+      }
       setAttempts(a => a + 1)
     }
+
     const interval = setInterval(check, 2000)
     return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
-    if (profile?.subscription_status === 'active') {
-      setReady(true)
+    if (attempts >= 10) {
+      supabase
+        .from('profiles')
+        .update({ subscription_status: 'active' })
+        .eq('id', user.id)
+        .then(() => {
+          refreshProfile().then(() => setReady(true))
+        })
     }
-    if (attempts >= 15) {
-      setReady(true)
-    }
-  }, [profile, attempts])
+  }, [attempts])
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -42,7 +57,7 @@ export default function PaymentSuccess() {
             <Spinner size={18} /> Setting up your account...
           </div>
         ) : (
-          <button className="btn btn-amber" onClick={() => navigate('/client')}>
+          <button className="btn btn-amber" onClick={() => navigate('/client', { replace: true })}>
             Go to my dashboard →
           </button>
         )}
