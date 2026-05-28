@@ -48,6 +48,11 @@ const TABS = [
 export default function ClientDashboard() {
   const { profile, user, signOut, refreshProfile } = useAuth()
   const navigate = useNavigate()
+  useEffect(() => {
+    if (profile && profile.subscription_status !== 'active') {
+      navigate('/payment', { replace: true })
+    }
+  }, [profile])
   const { display, label, isKg, toStorageLbs } = useUnits()
   const todayDayName = DAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]
   const [tab, setTab] = useState('home')

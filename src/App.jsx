@@ -6,6 +6,8 @@ import Login from './pages/auth/Login'
 import SignUp from './pages/auth/SignUp'
 import Onboarding from './pages/auth/Onboarding'
 import ClientDashboard from './pages/client/Dashboard'
+import Payment from './pages/client/Payment'
+import PaymentSuccess from './pages/client/PaymentSuccess'
 import TrainerDashboard from './pages/trainer/Dashboard'
 import TrainerClient from './pages/trainer/Client'
 import AdminDashboard from './pages/admin/Dashboard'
@@ -23,7 +25,11 @@ function HomeRedirect() {
   if (loading) return <div className="loading-full"><Spinner /></div>
   if (!user) return <Navigate to="/login" replace />
   if (!profile?.onboarded) return <Navigate to="/onboarding" replace />
-  if (profile.role === 'client') return <Navigate to="/client" replace />
+  if (profile.role === 'client') {
+    if (!profile.onboarded) return <Navigate to="/onboarding" replace />
+    if (profile.subscription_status !== 'active') return <Navigate to="/payment" replace />
+    return <Navigate to="/client" replace />
+  }
   if (profile.role === 'trainer') return <Navigate to="/trainer" replace />
   if (profile.role === 'admin') return <Navigate to="/admin" replace />
   return <Navigate to="/login" replace />
@@ -39,6 +45,12 @@ export default function App() {
         <Route path="/signup" element={<SignUp />} />
         <Route path="/onboarding" element={
           <ProtectedRoute><Onboarding /></ProtectedRoute>
+        } />
+        <Route path="/payment" element={
+          <ProtectedRoute allowedRoles={['client']}><Payment /></ProtectedRoute>
+        } />
+        <Route path="/payment-success" element={
+          <ProtectedRoute allowedRoles={['client']}><PaymentSuccess /></ProtectedRoute>
         } />
         <Route path="/client" element={
           <ProtectedRoute allowedRoles={['client']}><ClientDashboard /></ProtectedRoute>
